@@ -1,0 +1,74 @@
+{
+  "files.exclude": {
+    "**/*.aux": true,
+    "**/*.bbl": true,
+    "**/*.blg": true,
+    "**/*.fdb_*": true,
+    "**/*.fls": true,
+    "**/*.log": true,
+    "**/*.out": true,
+    "**/*.synctex.*": true,
+    "**/*.toc": true,
+    "**/.pytest_cache": true,
+    "**/.venv": true,
+    "**/bazel-*": true,
+    "external": true,
+    "**/*.egg-info": true
+  },
+  "latex-workshop.latex.tools": [
+    {
+      "name": "latexmk",
+      "command": "latexmk",
+      "args": [
+        "-r",
+        "%DIR%/../.latexmkrc",
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "-pdf",
+        "%DOCFILE%"
+      ],
+      "cwd": "%DIR%"
+    }
+  ],
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "latexmk",
+      "tools": ["latexmk"]
+    }
+  ],
+  "latex-workshop.latex.recipe.default": "latexmk",
+  "latex-workshop.latex.autoClean.run": "onBuilt",
+  "latex-workshop.latex.clean.method": "glob",
+  "latex-workshop.latex.clean.subfolder.enabled": true,
+  "latex-workshop.latex.clean.fileTypes": [
+    "*.aux",
+    "*.bbl",
+    "*.blg",
+    "*.fdb_*",
+    "*.fdb_latexmk",
+    "*.fls",
+    "*.idx",
+    "*.ind",
+    "*.log",
+    "*.lof",
+    "*.lot",
+    "*.out",
+    "*.synctex",
+    "*.synctex.*",
+    "*.synctex.gz",
+    "*.synctex(busy)",
+    "*.synctex.gz(busy)",
+    "*.toc",
+    "*.acn",
+    "*.acr",
+    "*.alg",
+    "*.glg",
+    "*.glo",
+    "*.gls",
+    "*.ist",
+    "*.nav",
+    "*.snm",
+    "*.vrb"
+  ]
+}

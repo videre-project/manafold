@@ -1,0 +1,75 @@
+load("@aspect_rules_py//py:defs.bzl", "py_binary", "py_library", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+  name = "manafold_lib",
+  srcs = glob(
+    ["src/manafold/**/*.py"],
+    exclude = ["src/manafold/cli.py"],
+  ),
+  imports = ["src"],
+  deps = [
+    "@pypi//numpy",
+    "@pypi//psycopg",
+    "@pypi//psycopg_binary",
+    "@pypi//pyarrow",
+    "@pypi//torch",
+  ],
+)
+
+py_binary(
+  name = "manafold",
+  srcs = ["src/manafold/cli.py"],
+  main = "src/manafold/cli.py",
+  imports = ["src"],
+  deps = [":manafold_lib"],
+)
+
+py_test(
+  name = "schema_tests",
+  srcs = ["tests/test_schemas.py"],
+  main = "tests/test_schemas.py",
+  imports = ["src"],
+  deps = [":manafold_lib"],
+)
+
+py_test(
+  name = "dataset_check_tests",
+  srcs = ["tests/test_dataset_checks.py"],
+  main = "tests/test_dataset_checks.py",
+  imports = ["src"],
+  deps = [":manafold_lib"],
+)
+
+py_test(
+  name = "model_input_tests",
+  srcs = ["tests/test_model_inputs.py"],
+  main = "tests/test_model_inputs.py",
+  imports = ["src"],
+  deps = [":manafold_lib"],
+)
+
+py_test(
+  name = "model_target_tests",
+  srcs = ["tests/test_model_targets.py"],
+  main = "tests/test_model_targets.py",
+  imports = ["src"],
+  deps = [":manafold_lib"],
+)
+
+py_test(
+  name = "model_tests",
+  srcs = ["tests/test_models.py"],
+  main = "tests/test_models.py",
+  imports = ["src"],
+  deps = [":manafold_lib"],
+)
+
+py_test(
+  name = "validation_tests",
+  srcs = ["tests/test_validation.py"],
+  main = "tests/test_validation.py",
+  imports = ["src"],
+  deps = [":manafold_lib"],
+)

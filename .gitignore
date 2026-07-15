@@ -1,0 +1,53 @@
+# OS/editor scratch files
+.DS_Store
+Thumbs.db
+*~
+*.bak
+*.swp
+*.tmp
+.~lock.*
+
+# Python caches and virtual environments
+__pycache__/
+*.egg-info
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+_ref/
+.venv/
+venv/
+env/
+
+# Bazel
+/bazel-*
+MODULE.bazel.lock
+
+# Generated datasets, model outputs, and run artifacts
+/artifacts/
+/data/
+/runs/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.dvi
+*.fdb_latexmk
+*.fls
+*.idx
+*.ilg
+*.ind
+*.lof
+*.log
+*.lot
+*.nav
+*.out
+*.run.xml
+*.snm
+*.synctex.gz
+*.toc
+*.vrb
+*.xdv

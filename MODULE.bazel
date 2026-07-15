@@ -1,0 +1,30 @@
+module(
+  name = "manafold",
+  version = "0.1.0",
+)
+
+bazel_dep(name = "aspect_rules_py", version = "1.11.7")
+bazel_dep(name = "rules_python", version = "1.7.0")
+
+python_interpreters = use_extension("@aspect_rules_py//py/unstable:extension.bzl", "python_interpreters")
+python_interpreters.toolchain(
+  python_version = "3.12",
+  is_default = True,
+)
+use_repo(python_interpreters, "python_interpreters")
+register_toolchains("@python_interpreters//:all")
+
+uv_bin = use_extension("@aspect_rules_py//uv/unstable:extension.bzl", "uv_bin")
+uv_bin.toolchain(version = "0.11.6")
+use_repo(uv_bin, "uv")
+register_toolchains("@uv//:all")
+
+uv = use_extension("@aspect_rules_py//uv/unstable:extension.bzl", "uv")
+uv.declare_hub(hub_name = "pypi")
+uv.project(
+  hub_name = "pypi",
+  pyproject = "//:pyproject.toml",
+  lock = "//:uv.lock",
+  default_build_dependencies = [],
+)
+use_repo(uv, "pypi")
