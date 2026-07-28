@@ -4,7 +4,28 @@ module(
 )
 
 bazel_dep(name = "aspect_rules_py", version = "1.11.7")
+bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "rules_python", version = "1.7.0")
+
+git_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+git_repository(
+  name = "onnxruntime_src",
+  build_file = "//third_party:onnxruntime.BUILD.bazel",
+  commit = "8f0278c77bf44b0cc83c098c6c722b92a36ac4b5",
+  recursive_init_submodules = True,
+  remote = "https://github.com/microsoft/onnxruntime.git",
+  shallow_since = "2026-07-14",
+)
+
+http_archive(
+  name = "gnu_patch_src",
+  build_file = "//third_party:gnu_patch.BUILD.bazel",
+  integrity = "sha256-rGEL2per4Nn2t8ljJVoR3LGWwl4zfGH5Tkd41jLx2P0=",
+  strip_prefix = "patch-2.7.6",
+  urls = ["https://ftp.gnu.org/gnu/patch/patch-2.7.6.tar.xz"],
+)
 
 python_interpreters = use_extension("@aspect_rules_py//py/unstable:extension.bzl", "python_interpreters")
 python_interpreters.toolchain(

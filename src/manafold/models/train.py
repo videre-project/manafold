@@ -17,10 +17,16 @@ from manafold.models.data import (
   split_examples,
 )
 from manafold.models.deepsets import (
+  DEEPSETS_ARCHITECTURE_PLUSPLUS,
   POOLING_MEAN,
   POOLING_MODES,
   POOLING_QUANTITY_WEIGHTED,
   POOLING_SUM,
+  PARTIAL_CORRUPTION_MIXTURE,
+  PARTIAL_CORRUPTION_FIXED,
+  TRAINING_SAMPLING_NATURAL_SQRT_BALANCED,
+  TRAINING_SAMPLING_NATURAL,
+  SET_TRANSFORMER_POOLING_HYPERGEOMETRIC,
   SET_TRANSFORMER_POOLING_PMA,
   SET_TRANSFORMER_POOLING_QUANTITY_WEIGHTED,
   Classifier,
@@ -62,6 +68,13 @@ MODEL_DEEPSETS_MEAN = "deepsets-mean"
 MODEL_DEEPSETS_QUANTITY_WEIGHTED = "deepsets-quantity-weighted"
 MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED = (
   "deepsets-quantity-weighted-regularized"
+)
+MODEL_DEEPSETS_PLUSPLUS_REGULARIZED = "deepsets-plusplus-regularized"
+MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_005 = (
+  "deepsets-plusplus-regularized-label-smoothing-005"
+)
+MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_010 = (
+  "deepsets-plusplus-regularized-label-smoothing-010"
 )
 MODEL_ARTIFACT_SEED_POLICY_SINGLE = "single"
 MODEL_ARTIFACT_SEED_POLICY_FIRST = "first"
@@ -106,10 +119,29 @@ MODEL_DEEPSETS_QUANTITY_WEIGHTED_PROTOTYPE = "deepsets-quantity-weighted-prototy
 MODEL_SET_TRANSFORMER = "set-transformer"
 MODEL_SET_TRANSFORMER_PMA = "set-transformer-pma"
 MODEL_SET_TRANSFORMER_QUANTITY_WEIGHTED = "set-transformer-quantity-weighted"
+MODEL_SET_TRANSFORMER_PARTIAL_BALANCED = (
+  "set-transformer-mainboard-hypergeometric-partial-contextual-mixture-"
+  "balanced-regularized-label-smoothing-010"
+)
+MODEL_A1_5 = "a1.5"
+MODEL_A15 = "a15"
+MODEL_A2PP = "a2++"
+MODEL_A2_PP = "a2pp"
+MODEL_A2 = "a2"
+MODEL_A3 = "a3"
+MODEL_ALIASES = {
+  MODEL_A1_5: MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED,
+  MODEL_A15: MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED,
+  MODEL_A2PP: MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_010,
+  MODEL_A2_PP: MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_010,
+  MODEL_A2: MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_010,
+  MODEL_A3: MODEL_SET_TRANSFORMER_PARTIAL_BALANCED,
+}
 MODEL_ALL = "all"
 DEFAULT_LEARNING_RATE = 0.005
 DEFAULT_REGULARIZED_WEIGHT_DECAY = 1e-3
 DEFAULT_HEAD_V2_RHO_HIDDEN_DIM = 443
+DEFAULT_DEEPSETS_PLUSPLUS_DROPOUT = 0.1
 TARGET_LABEL_LEVEL_SOURCE = "source"
 TARGET_LABEL_LEVEL_CANONICAL_FAMILY = "canonical-family"
 TARGET_LABEL_LEVELS = (
@@ -146,6 +178,9 @@ SUPPORTED_MODELS = (
   MODEL_DEEPSETS_MEAN,
   MODEL_DEEPSETS_QUANTITY_WEIGHTED,
   MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED,
+  MODEL_DEEPSETS_PLUSPLUS_REGULARIZED,
+  MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_005,
+  MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_010,
   MODEL_DEEPSETS_QUANTITY_WEIGHTED_WIDE_RHO,
   MODEL_DEEPSETS_QUANTITY_WEIGHTED_EXTRA_CONSTANT_FEATURES,
   MODEL_DEEPSETS_QUANTITY_WEIGHTED_ZERO_EXTRA_DIMS_PRESERVE_INIT,
@@ -163,6 +198,7 @@ SUPPORTED_MODELS = (
   MODEL_SET_TRANSFORMER,
   MODEL_SET_TRANSFORMER_PMA,
   MODEL_SET_TRANSFORMER_QUANTITY_WEIGHTED,
+  MODEL_SET_TRANSFORMER_PARTIAL_BALANCED,
 )
 DEFAULT_MODEL_SET = (
   MODEL_POOLED_LINEAR,
@@ -185,6 +221,12 @@ _MODEL_POOLING = {
   MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED: POOLING_QUANTITY_WEIGHTED,
 }
 
+_DEEPSETS_PLUSPLUS_LABEL_SMOOTHING = {
+  MODEL_DEEPSETS_PLUSPLUS_REGULARIZED: 0.0,
+  MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_005: 0.05,
+  MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_010: 0.10,
+}
+
 _DEEPSETS_HEAD_ATTRIBUTION_MODELS = (
   MODEL_DEEPSETS_QUANTITY_WEIGHTED_WIDE_RHO,
   MODEL_DEEPSETS_QUANTITY_WEIGHTED_EXTRA_CONSTANT_FEATURES,
@@ -196,6 +238,7 @@ _DEEPSETS_HEAD_ATTRIBUTION_MODELS = (
 _SET_TRANSFORMER_POOLING = {
   MODEL_SET_TRANSFORMER_PMA: SET_TRANSFORMER_POOLING_PMA,
   MODEL_SET_TRANSFORMER_QUANTITY_WEIGHTED: SET_TRANSFORMER_POOLING_QUANTITY_WEIGHTED,
+  MODEL_SET_TRANSFORMER_PARTIAL_BALANCED: SET_TRANSFORMER_POOLING_HYPERGEOMETRIC,
 }
 
 
@@ -272,11 +315,12 @@ def run_model_training(
     )
 
   selected_models = _normalize_model_names(model_names, pooling=pooling)
-  if model_artifact_output is not None and model_artifact_model_name not in selected_models:
+  artifact_model_name = _resolve_model_alias(model_artifact_model_name)
+  if model_artifact_output is not None and artifact_model_name not in selected_models:
     raise ValueError(
-      f"Artifact model {model_artifact_model_name!r} must be one of the selected models."
+      f"Artifact model {artifact_model_name!r} must be one of the selected models."
     )
-  if model_artifact_output is not None and model_artifact_model_name in (
+  if model_artifact_output is not None and artifact_model_name in (
     MODEL_DEEPSETS_QUANTITY_WEIGHTED,
     MODEL_DEEPSETS_QUANTITY_WEIGHTED_PROTOTYPE,
   ):
@@ -403,7 +447,13 @@ def run_model_training(
 
   result: dict[str, Any] = {
     "run_id": "model_training",
+    "dataset_path": str(dataset.dataset_path),
     "dataset_version": dataset.dataset_version,
+    "formats": sorted({
+      example.format_code
+      for example in examples
+      if example.format_code
+    }),
     "target_source": target_source,
     "training_target": {
       "label_level": target_label_level,
@@ -450,7 +500,7 @@ def run_model_training(
     ),
     "model_artifact_export": {
       "enabled": model_artifact_output is not None,
-      "model_name": model_artifact_model_name if model_artifact_output else None,
+      "model_name": artifact_model_name if model_artifact_output else None,
       "seed_policy": (
         model_artifact_seed_policy
         if model_artifact_output is not None
@@ -589,7 +639,7 @@ def run_model_training(
           model_artifact_output=(
             model_artifact_output
             if (
-              model_name == model_artifact_model_name
+              model_name == artifact_model_name
               and run_seed == model_artifact_seed
             )
             else None
@@ -648,6 +698,7 @@ def _normalize_model_names(
 
   normalized: list[str] = []
   for model_name in model_names:
+    model_name = _resolve_model_alias(model_name)
     if model_name == MODEL_ALL:
       normalized.extend(DEFAULT_MODEL_SET)
       continue
@@ -663,6 +714,10 @@ def _normalize_model_names(
     normalized.append(model_name)
 
   return tuple(dict.fromkeys(normalized))
+
+
+def _resolve_model_alias(model_name: str) -> str:
+  return MODEL_ALIASES.get(model_name, model_name)
 
 
 def _taxonomy_eval_path(path: Path | None) -> Path | None:
@@ -752,7 +807,11 @@ def _model_weight_decay(
   head_v2_weight_decay: float,
   package_weight_decay: float | None,
 ) -> float:
-  if model_name == MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED:
+  if model_name in (
+    MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED,
+    *_DEEPSETS_PLUSPLUS_LABEL_SMOOTHING,
+    MODEL_SET_TRANSFORMER_PARTIAL_BALANCED,
+  ):
     return deepsets_regularized_weight_decay
   if model_name == MODEL_DEEPSETS_QUANTITY_WEIGHTED_HEAD_V2_REGULARIZED:
     return head_v2_weight_decay
@@ -1064,6 +1123,23 @@ def _run_single_model_training(
   model_artifact_output: Path | None = None,
   training_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+  model_examples = examples
+  model_train_examples = train_examples
+  model_validation_examples = validation_examples
+  if model_name == MODEL_SET_TRANSFORMER_PARTIAL_BALANCED:
+    main_zone_idx = dataset.zone_vocab.get("main")
+    if main_zone_idx is None:
+      raise ValueError("The selected Set Transformer requires a 'main' zone.")
+    model_examples = _examples_for_zone(examples, zone_idx=main_zone_idx)
+    model_train_examples = _examples_for_zone(
+      train_examples,
+      zone_idx=main_zone_idx,
+    )
+    model_validation_examples = _examples_for_zone(
+      validation_examples,
+      zone_idx=main_zone_idx,
+    )
+
   model, metadata = _build_classifier(
     model_name,
     labels=dataset.labels,
@@ -1088,8 +1164,8 @@ def _run_single_model_training(
     architecture_package_count=architecture_package_count,
   )
   training_summary = model.fit(
-    train_examples,
-    validation_examples=validation_examples,
+    model_train_examples,
+    validation_examples=model_validation_examples,
     epochs=epochs,
     batch_size=batch_size,
     shuffle=shuffle,
@@ -1102,8 +1178,8 @@ def _run_single_model_training(
     training_summary=training_summary,
     seed=seed,
     dataset=dataset,
-    examples=examples,
-    train_examples=train_examples,
+    examples=model_examples,
+    train_examples=model_train_examples,
     train_label_support=train_label_support,
     train_source_label_support=train_source_label_support,
     inference_package_feature_sets=inference_package_feature_sets,
@@ -1131,6 +1207,24 @@ def _run_single_model_training(
       seed=seed,
     )
   return model_result
+
+
+def _examples_for_zone(
+  examples: list[ModelExample],
+  *,
+  zone_idx: int,
+) -> list[ModelExample]:
+  return [
+    replace(
+      example,
+      tokens=tuple(
+        token
+        for token in example.tokens
+        if token.zone_idx == zone_idx
+      ),
+    )
+    for example in examples
+  ]
 
 
 def _evaluate_trained_model(
@@ -2004,6 +2098,54 @@ def _build_classifier(
       metadata["architecture_reference_package_count"] = architecture_package_count
       metadata["architecture_reference_projection_dim"] = package_projection_dim
     return (classifier, metadata)
+  if model_name in _DEEPSETS_PLUSPLUS_LABEL_SMOOTHING:
+    classifier = DeepSetsClassifier(
+      labels=labels,
+      card_count=card_count,
+      zone_count=zone_count,
+      quantity_count=quantity_count,
+      embedding_dim=embedding_dim,
+      hidden_dim=hidden_dim,
+      pooling=POOLING_QUANTITY_WEIGHTED,
+      learning_rate=learning_rate,
+      weight_decay=weight_decay,
+      seed=seed,
+      device=device,
+      architecture=DEEPSETS_ARCHITECTURE_PLUSPLUS,
+      dropout=DEFAULT_DEEPSETS_PLUSPLUS_DROPOUT,
+      label_smoothing=_DEEPSETS_PLUSPLUS_LABEL_SMOOTHING[model_name],
+    )
+    return (
+      classifier,
+      {
+        "embedding_dim": embedding_dim,
+        "hidden_dim": hidden_dim,
+        "head": "softmax",
+        "architecture": classifier.architecture,
+        "dropout": classifier.dropout,
+        "label_smoothing": classifier.label_smoothing,
+        "pooling": POOLING_QUANTITY_WEIGHTED,
+        "quantity_count": quantity_count,
+        "package_count": classifier.package_count,
+        "rho_hidden_dim": classifier.rho_hidden_dim,
+        "parameter_count": classifier.parameter_count(),
+        "weight_decay": classifier.weight_decay,
+        "batch_size": batch_size,
+        "shuffle": shuffle,
+        "device": str(classifier.device),
+        "model_config": {
+          "head": "softmax",
+          "architecture": classifier.architecture,
+          "dropout": classifier.dropout,
+          "label_smoothing": classifier.label_smoothing,
+          "rho_hidden_dim": classifier.rho_hidden_dim,
+          "weight_decay": classifier.weight_decay,
+          "pooling": POOLING_QUANTITY_WEIGHTED,
+          "embedding_dim": embedding_dim,
+          "hidden_dim": hidden_dim,
+        },
+      },
+    )
   if model_name in (
     MODEL_DEEPSETS_QUANTITY_WEIGHTED_PACKAGES,
     MODEL_DEEPSETS_QUANTITY_WEIGHTED_PACKAGES_V1,
@@ -2113,6 +2255,7 @@ def _build_classifier(
     )
   if model_name in _SET_TRANSFORMER_POOLING:
     pooling = _SET_TRANSFORMER_POOLING[model_name]
+    selected_partial_model = model_name == MODEL_SET_TRANSFORMER_PARTIAL_BALANCED
     classifier = SetTransformerClassifier(
       labels=labels,
       card_count=card_count,
@@ -2124,6 +2267,21 @@ def _build_classifier(
       attention_layers=attention_layers,
       pooling=pooling,
       learning_rate=learning_rate,
+      weight_decay=weight_decay,
+      label_smoothing=0.10 if selected_partial_model else 0.0,
+      partial_observation_training=selected_partial_model,
+      partial_consistency_weight=0.5 if selected_partial_model else 0.0,
+      partial_contextual_weight=0.5 if selected_partial_model else 0.0,
+      partial_corruption_policy=(
+        PARTIAL_CORRUPTION_MIXTURE
+        if selected_partial_model
+        else PARTIAL_CORRUPTION_FIXED
+      ),
+      training_sampling_policy=(
+        TRAINING_SAMPLING_NATURAL_SQRT_BALANCED
+        if selected_partial_model
+        else TRAINING_SAMPLING_NATURAL
+      ),
       seed=seed,
       device=device,
     )
@@ -2135,10 +2293,32 @@ def _build_classifier(
         "attention_heads": attention_heads,
         "attention_layers": attention_layers,
         "pooling": pooling,
+        "hypergeometric_draw_count": classifier.hypergeometric_draw_count,
+        "label_smoothing": classifier.label_smoothing,
+        "weight_decay": classifier.weight_decay,
+        "partial_observation": classifier.partial_observation_config(),
+        "token_scope": "mainboard" if selected_partial_model else "all",
+        "parameter_count": classifier.inference_parameter_count(),
+        "inference_parameter_count": classifier.inference_parameter_count(),
+        "training_parameter_count": classifier.training_parameter_count(),
         "quantity_count": quantity_count,
         "batch_size": batch_size,
         "shuffle": shuffle,
         "device": str(classifier.device),
+        "model_config": {
+          "pooling": pooling,
+          "hypergeometric_draw_count": classifier.hypergeometric_draw_count,
+          "label_smoothing": classifier.label_smoothing,
+          "weight_decay": classifier.weight_decay,
+          "partial_observation": classifier.partial_observation_config(),
+          "token_scope": "mainboard" if selected_partial_model else "all",
+          "inference_parameter_count": classifier.inference_parameter_count(),
+          "training_parameter_count": classifier.training_parameter_count(),
+          "embedding_dim": embedding_dim,
+          "hidden_dim": hidden_dim,
+          "attention_heads": attention_heads,
+          "attention_layers": attention_layers,
+        },
       },
     )
   raise AssertionError(f"Unhandled model: {model_name}")

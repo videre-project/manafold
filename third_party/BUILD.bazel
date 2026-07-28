@@ -1,0 +1,4 @@
+exports_files([
+  "gnu_patch.BUILD.bazel",
+  "onnxruntime.BUILD.bazel",
+])

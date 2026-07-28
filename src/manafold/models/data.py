@@ -30,6 +30,8 @@ class ModelExample:
   source_label_id: str
   target_source: str
   tokens: tuple[DeckToken, ...]
+  expected_mainboard_size: int | None = None
+  observation_complete: bool = True
 
 
 @dataclass(frozen=True)

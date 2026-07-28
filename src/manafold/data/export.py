@@ -58,6 +58,7 @@ class DatasetExportOptions:
   dev_test_end: date | None
   env_file: Path | None
   limit_events: int | None
+  allow_empty: bool = False
 
 
 @dataclass(frozen=True)
@@ -90,14 +91,16 @@ def export_dataset(options: DatasetExportOptions) -> DatasetExportSummary:
     deck_cards = _fetch_deck_cards(connection, options, dataset_version)
     card_catalog = _fetch_card_catalog(connection, options)
 
-  validate_deck_examples(deck_examples)
+  if deck_examples or not options.allow_empty:
+    validate_deck_examples(deck_examples)
   validate_deck_cards(deck_examples, deck_cards)
 
   split_manifest = _build_split_manifest(deck_examples, options, dataset_version)
-  validate_split_manifest(
-    split_manifest,
-    require_all_splits=options.limit_events is None,
-  )
+  if split_manifest:
+    validate_split_manifest(
+      split_manifest,
+      require_all_splits=options.limit_events is None,
+    )
 
   card_vocab = build_card_vocab(card_catalog, dataset_version)
   deck_tokens = build_deck_tokens(deck_cards, card_vocab)
@@ -488,6 +491,7 @@ def _build_dataset_manifest(
       else "event_forward"
     ),
     "limit_events": options.limit_events,
+    "empty": not split_manifest,
     "artifacts": {
       "card_vocab": "card_vocab.parquet",
       "deck_tokens": "deck_tokens.parquet",

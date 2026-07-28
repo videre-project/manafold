@@ -1,0 +1,8 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["VERSION_NUMBER"])
+
+filegroup(
+  name = "source",
+  srcs = glob(["**"], exclude = ["BUILD.bazel"]),
+)

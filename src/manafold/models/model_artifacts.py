@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +21,21 @@ from manafold.models.deepsets import (
   POOLING_QUANTITY_WEIGHTED,
   DeepSetsClassifier,
   PooledLinearClassifier,
+  PrototypeClassifier,
+  SetTransformerClassifier,
   max_quantity,
 )
 
 MODEL_POOLED_LINEAR = "pooled-linear"
 MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED = (
   "deepsets-quantity-weighted-regularized"
+)
+MODEL_DEEPSETS_PLUSPLUS_REGULARIZED = "deepsets-plusplus-regularized"
+MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_005 = (
+  "deepsets-plusplus-regularized-label-smoothing-005"
+)
+MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_010 = (
+  "deepsets-plusplus-regularized-label-smoothing-010"
 )
 MODEL_ARTIFACT_VERSION = "manafold_model_artifact_v0"
 
@@ -138,6 +148,12 @@ def run_model_scoring(
   examples = list(dataset.examples)
   model = artifact["model"]
   temperature = float(artifact["temperature"])
+  prototype_stats, prototype_scoring = _prototype_novelty_scores(
+    model,
+    examples,
+    batch_size=batch_size,
+    top_k=top_k,
+  )
   predictions = _score_examples(
     model,
     examples,
@@ -148,6 +164,7 @@ def run_model_scoring(
     low_confidence_threshold=low_confidence_threshold,
     model_version=artifact["model_version"],
     taxonomy_eval_version=taxonomy_eval_version,
+    prototype_stats=prototype_stats,
   )
 
   output.parent.mkdir(parents=True, exist_ok=True)
@@ -179,6 +196,7 @@ def run_model_scoring(
     "target_source": target_source,
     "prediction_count": len(predictions),
     "deck_embedding_count": embedding_count,
+    "prototype_scoring": prototype_scoring,
     "top_k": top_k,
     "low_confidence_threshold": low_confidence_threshold,
     "taxonomy_eval_version": taxonomy_eval_version,
@@ -265,8 +283,31 @@ def _model_config(
     ),
     "label_count": len(model.labels),
     "pooling": base_config.get("pooling", getattr(model, "pooling", None)),
+    "token_scope": base_config.get("token_scope", "all"),
+    "architecture": base_config.get(
+      "architecture",
+      getattr(model, "architecture", "base"),
+    ),
+    "dropout": base_config.get("dropout", getattr(model, "dropout", 0.0)),
+    "label_smoothing": base_config.get(
+      "label_smoothing",
+      getattr(model, "label_smoothing", 0.0),
+    ),
     "embedding_dim": base_config.get("embedding_dim"),
     "hidden_dim": base_config.get("hidden_dim"),
+    "attention_heads": base_config.get("attention_heads"),
+    "attention_layers": base_config.get("attention_layers"),
+    "hypergeometric_draw_count": base_config.get(
+      "hypergeometric_draw_count",
+      getattr(model, "hypergeometric_draw_count", None),
+    ),
+    "observation_conditioning": base_config.get(
+      "observation_conditioning",
+      base_config.get("partial_observation", {}).get(
+        "observation_conditioning",
+        getattr(model, "observation_conditioning", False),
+      ),
+    ),
     "rho_hidden_dim": base_config.get(
       "rho_hidden_dim",
       getattr(model, "rho_hidden_dim", None),
@@ -306,7 +347,9 @@ def _training_manifest(
     "run_id": "model_artifact_export",
     "artifact_dir": str(artifact_dir),
     "source_training_run_id": training_result.get("run_id"),
+    "dataset_path": training_result.get("dataset_path"),
     "dataset_version": training_result.get("dataset_version"),
+    "formats": training_result.get("formats"),
     "target_source": training_result.get("target_source"),
     "training_target": training_result.get("training_target"),
     "model_artifact_export": training_result.get("model_artifact_export"),
@@ -443,6 +486,28 @@ def _load_scoring_dataset(
     proxy_targets=proxy_targets,
     target_source=target_source,
   )
+  if str(artifact["model_config"].get("token_scope") or "all") == "mainboard":
+    main_zone_idx = artifact_zone_vocab.get("main")
+    if main_zone_idx is None:
+      raise ValueError(
+        "Mainboard-only artifact requires a 'main' zone in the artifact vocabulary."
+      )
+    examples = [
+      replace(
+        example,
+        tokens=tuple(
+          token
+          for token in example.tokens
+          if token.zone_idx == main_zone_idx
+        ),
+        expected_mainboard_size=sum(
+          max(token.quantity, 0)
+          for token in example.tokens
+          if token.zone_idx == main_zone_idx
+        ),
+      )
+      for example in examples
+    ]
   labels = tuple(
     sorted(
       {
@@ -483,7 +548,12 @@ def _build_artifact_model(
   model_config: dict[str, Any],
   device: str,
 ) -> Any:
-  if model_family == MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED:
+  if model_family in (
+    MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED,
+    MODEL_DEEPSETS_PLUSPLUS_REGULARIZED,
+    MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_005,
+    MODEL_DEEPSETS_PLUSPLUS_REGULARIZED_LABEL_SMOOTHING_010,
+  ):
     if int(model_config.get("package_count") or 0):
       raise ValueError("Package-conditioned artifacts are not supported by model-score v0.")
     return DeepSetsClassifier(
@@ -506,6 +576,9 @@ def _build_artifact_model(
       extra_feature_dim=int(model_config.get("extra_feature_dim") or 0),
       extra_feature_value=float(model_config.get("extra_feature_value") or 0.0),
       preserve_base_rho_init=bool(model_config.get("preserve_base_rho_init")),
+      architecture=str(model_config.get("architecture") or "base"),
+      dropout=float(model_config.get("dropout") or 0.0),
+      label_smoothing=float(model_config.get("label_smoothing") or 0.0),
     )
   if model_family == MODEL_POOLED_LINEAR:
     return PooledLinearClassifier(
@@ -514,6 +587,29 @@ def _build_artifact_model(
       zone_count=int(model_config["zone_count"]),
       learning_rate=float(model_config.get("learning_rate") or 0.0),
       weight_decay=float(model_config.get("weight_decay") or 0.0),
+      seed=int(model_config.get("seed") or 13),
+      device=device,
+    )
+  if model_family.startswith("set-transformer-"):
+    return SetTransformerClassifier(
+      labels=labels,
+      card_count=int(model_config["card_count"]),
+      zone_count=int(model_config["zone_count"]),
+      quantity_count=int(model_config["quantity_count"]),
+      embedding_dim=int(model_config["embedding_dim"]),
+      hidden_dim=int(model_config["hidden_dim"]),
+      attention_heads=int(model_config["attention_heads"]),
+      attention_layers=int(model_config["attention_layers"]),
+      pooling=str(model_config["pooling"]),
+      learning_rate=float(model_config.get("learning_rate") or 0.0),
+      weight_decay=float(model_config.get("weight_decay") or 0.0),
+      label_smoothing=float(model_config.get("label_smoothing") or 0.0),
+      hypergeometric_draw_count=int(
+        model_config.get("hypergeometric_draw_count") or 7
+      ),
+      observation_conditioning=bool(
+        model_config.get("observation_conditioning")
+      ),
       seed=int(model_config.get("seed") or 13),
       device=device,
     )
@@ -535,12 +631,9 @@ def _validate_dataset_compatibility(
       "Dataset zone vocabulary is larger than the model artifact vocabulary "
       f"({dataset.zone_count} > {config['zone_count']})."
     )
-  quantity_count = max(1, max_quantity(dataset.examples) + 1)
-  if quantity_count > int(config["quantity_count"]):
-    raise ValueError(
-      "Dataset quantity range is larger than the model artifact quantity "
-      f"embedding ({quantity_count} > {config['quantity_count']})."
-    )
+  # Inference clips copy counts to the final learned quantity embedding. This
+  # matches training batches and the ONNX request adapter, and allows unusual
+  # basic-land counts that were not present in the training split.
 
 
 def _score_examples(
@@ -554,6 +647,7 @@ def _score_examples(
   low_confidence_threshold: float,
   model_version: str,
   taxonomy_eval_version: str | None,
+  prototype_stats: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
   stats = model.predict_top_k_with_stats_many(
     examples,
@@ -567,10 +661,12 @@ def _score_examples(
   )
   scaled_max = scaled_probabilities.max(dim=1).values.tolist()
   rows: list[dict[str, Any]] = []
-  for example, prediction_stats, temperature_probability in zip(
+  prototype_rows = prototype_stats or [None] * len(examples)
+  for example, prediction_stats, temperature_probability, prototype_row in zip(
     examples,
     stats,
     scaled_max,
+    prototype_rows,
     strict=True,
   ):
     top_predictions = prediction_stats["top_predictions"]
@@ -609,6 +705,16 @@ def _score_examples(
       "temperature_scaled_probability": float(temperature_probability),
       "energy_score": prediction_stats.get("energy"),
       "msp_score": prediction_stats.get("max_probability", top1[1]),
+      "nearest_prototype_distance": (
+        prototype_row.get("nearest_prototype_distance")
+        if prototype_row is not None
+        else None
+      ),
+      "prototype_margin": (
+        prototype_row.get("prototype_margin")
+        if prototype_row is not None
+        else None
+      ),
       "entropy": prediction_stats.get("entropy"),
       "normalized_entropy": prediction_stats.get("normalized_entropy"),
       "is_low_confidence": (
@@ -620,6 +726,58 @@ def _score_examples(
       "taxonomy_eval_version": taxonomy_eval_version,
     })
   return rows
+
+
+def _prototype_novelty_scores(
+  model: Any,
+  examples: list[Any],
+  *,
+  batch_size: int,
+  top_k: int,
+) -> tuple[list[dict[str, Any]] | None, dict[str, Any]]:
+  if not isinstance(model, DeepSetsClassifier):
+    return None, {
+      "enabled": False,
+      "reason": "Model does not expose a Deep Sets deck encoder.",
+    }
+  train_examples = [
+    example
+    for example in examples
+    if example.split_name == "train"
+  ]
+  if not train_examples:
+    return None, {
+      "enabled": False,
+      "reason": "No train split examples are available for prototype scoring.",
+    }
+  try:
+    prototype_model = PrototypeClassifier.from_deepsets(
+      model,
+      train_examples,
+      batch_size=batch_size,
+    )
+  except ValueError as exc:
+    return None, {
+      "enabled": False,
+      "reason": str(exc),
+    }
+  rows = prototype_model.predict_top_k_with_stats_many(
+    examples,
+    k=top_k,
+    batch_size=batch_size,
+  )
+  populated_prototype_count = sum(
+    1
+    for count in prototype_model.prototype_counts.values()
+    if count > 0
+  )
+  return rows, {
+    "enabled": True,
+    "prototype_count": len(prototype_model.prototype_counts),
+    "populated_prototype_count": populated_prototype_count,
+    "distance": prototype_model.distance,
+    "train_example_count": sum(prototype_model.prototype_counts.values()),
+  }
 
 
 def _display_label_or_none(

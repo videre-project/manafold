@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from manafold.data.export import (
   DatasetExportOptions,
   ZONE_VOCAB,
+  _build_dataset_manifest,
   _build_split_manifest,
   _validate_export_options,
   build_card_vocab,
@@ -17,8 +18,8 @@ class ModelInputTests(unittest.TestCase):
   def test_card_vocab_is_stable_zero_based_and_deduplicated(self) -> None:
     catalog = [
       _catalog_row("oracle-b", "Zagoth Triome"),
-      _catalog_row("oracle-a", "Lightning Bolt"),
-      _catalog_row("oracle-a", "Lightning Bolt"),
+      _catalog_row("oracle-a", "Example Card"),
+      _catalog_row("oracle-a", "Example Card"),
     ]
 
     vocab = build_card_vocab(catalog, "modern_2023_2026_v0")
@@ -29,7 +30,7 @@ class ModelInputTests(unittest.TestCase):
           "dataset_version": "modern_2023_2026_v0",
           "card_idx": 0,
           "oracle_id": "oracle-a",
-          "primary_name": "Lightning Bolt",
+          "primary_name": "Example Card",
           "first_seen_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
           "last_seen_at": datetime(2024, 1, 2, tzinfo=timezone.utc),
         },
@@ -47,7 +48,7 @@ class ModelInputTests(unittest.TestCase):
 
   def test_deck_tokens_use_card_and_zone_indexes(self) -> None:
     vocab = [
-      _vocab_row(0, "oracle-a", "Lightning Bolt"),
+      _vocab_row(0, "oracle-a", "Example Card"),
       _vocab_row(1, "oracle-b", "Zagoth Triome"),
     ]
     deck_cards = [
@@ -162,6 +163,34 @@ class ModelInputTests(unittest.TestCase):
           limit_events=None,
         )
       )
+
+  def test_empty_export_manifest_can_gate_format_training(self) -> None:
+    options = DatasetExportOptions(
+      format_code="premodern",
+      start=date(2024, 1, 1),
+      end=date(2024, 12, 31),
+      output=None,
+      dataset_version=None,
+      train_end=date(2024, 3, 31),
+      validation_end=date(2024, 6, 30),
+      dev_test_end=date(2024, 9, 30),
+      env_file=None,
+      limit_events=None,
+    )
+
+    manifest = _build_dataset_manifest(
+      dataset_version="premodern_2024_2024_v0",
+      format_code="premodern",
+      options=options,
+      card_vocab=[],
+      deck_tokens=[],
+      proxy_targets=[],
+      split_manifest=[],
+    )
+
+    self.assertTrue(manifest["empty"])
+    self.assertEqual(0, manifest["row_counts"]["split_manifest"])
+    self.assertEqual(0, manifest["row_counts"]["proxy_targets"])
 
 
 def _catalog_row(oracle_id: str, primary_name: str) -> dict[str, object]:

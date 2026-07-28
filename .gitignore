@@ -27,6 +27,7 @@ MODULE.bazel.lock
 # Generated datasets, model outputs, and run artifacts
 /artifacts/
 /data/
+/dist/
 /runs/
 
 # LaTeX build artifacts
