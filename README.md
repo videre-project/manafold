@@ -29,12 +29,9 @@ A1   quantity-aware Deep Sets
 A1.5 regularized quantity-aware Deep Sets
 ```
 
-The `pooled-linear` model measures how far normalized card-count features go without learned embeddings. The `deepsets-quantity-weighted` model adds learned card, zone, and quantity representations. The `deepsets-quantity-weighted-regularized` model keeps that set representation and adds the regularization used by the default scoring model.
+The `pooled-linear` model measures how far normalized card-count features go without learned embeddings. The `deepsets-quantity-weighted` model (`a1`) adds learned card, zone, and quantity representations. The regularized Deep Sets baseline (`a1.5`) adds weight decay regularization to the set representation.
 
 These baselines are intentionally simple and inspectable. They establish the artifact format, prediction schema, uncertainty scores, and deck embedding surface used by the rest of the Manafold pipeline.
-
-> [!NOTE]
-> Manafold is evolving. The set of implemented models will grow as additional approaches mature.
 
 ## Project Structure
 
@@ -88,7 +85,7 @@ bazel test //...
 
 ## Training
 
-`model-train` fits the reference baselines on the same event-forward split so their results are comparable. The default comparison starts with a sparse card-count classifier, adds learned card/zone/count representations, and then adds the regularization used by the default scoring model.
+`model-train` fits the reference baselines on an event-forward split.
 
 ```bash
 bazel run //:manafold -- model-train data/full
@@ -98,11 +95,23 @@ The default run trains:
 
 ```text
 pooled-linear
-deepsets-quantity-weighted
-deepsets-quantity-weighted-regularized
+a1 (deepsets-quantity-weighted)
+a1.5 (deepsets-quantity-weighted-regularized)
 ```
 
 The regularized Deep Sets model is configured by `--deepsets-regularized-weight-decay` and uses the same `0.005` default learning rate as the other neural baseline. Training output reports event-forward accuracy, top-k accuracy, macro-F1, confusion summaries, abstention metrics, and calibration metrics. Temperature scaling is fit on validation logits, so temperature-scaled NLL, Brier score, and ECE are reported separately from the unscaled metrics.
+
+The supported neural candidates are:
+
+| Model | Intended use |
+| --- | --- |
+| `a1.5` | A1.5 stable baseline |
+| `a2++` | A2++ complete-deck classifier |
+| `a3` | A3 partial and complete mainboard inference |
+
+`a1.5`, `a2++`, and `a3` are stable training aliases for their respective neural models (`a15` and `a2pp` are also accepted). Artifacts retain their full architecture identifiers for reproducibility.
+
+The A3 model (`a3`) uses hypergeometric copy weights, paired partial-view training, and a conservative natural/square-root-balanced sampler. Its EMA teacher and contextual predictor are training-only; saved artifacts and ONNX exports contain only the inference network.
 
 ## Scoring Artifacts
 
@@ -113,12 +122,12 @@ To train a single-seed A1.5 artifact:
 ```bash
 bazel run //:manafold -- model-train data/full \
   --output data/models/modern_a15_current/training_results.json \
-  --model deepsets-quantity-weighted-regularized \
+  --model a1.5 \
   --seed 13 \
   --max-steps 2370 \
   --batch-size 1024 \
   --model-artifact-output data/models/modern_a15_current \
-  --model-artifact-model deepsets-quantity-weighted-regularized
+  --model-artifact-model a1.5
 ```
 
 Artifact export defaults to `--model-artifact-seed-policy single`. A multi-seed run can export its first fitted model with `--model-artifact-seed-policy first`.
@@ -191,6 +200,42 @@ source_unseen
   source label exists outside the artifact label vocabulary; this helps identify
   taxonomy drift, new source strings, and alias checks.
 ```
+
+## ONNX Worker
+
+`//:export_onnx` converts a saved A1.5, A2++, or selected Set Transformer artifact into a verified ONNX bundle. `//:build_onnxruntime` builds the operator-reduced ONNX Runtime Web package from dependencies pinned in Bazel.
+
+Build datasets, A3 model artifacts, and private Worker bundles for every active
+format from the repository root:
+
+```bash
+./build.sh
+./deploy.sh
+```
+
+Pass formats to limit either operation:
+
+```bash
+./build.sh modern pioneer
+./deploy.sh modern pioneer
+```
+
+The build dates and training runtime can be overridden with `START_DATE`,
+`TRAIN_END`, `VALIDATION_END`, `END_DATE`, `EPOCHS`, `SEED`, and `DEVICE`.
+Formats with no decks or proxy targets are recorded and skipped. `deploy.sh`
+publishes existing bundles and never retrains or rebuilds them.
+
+The lower-level release commands remain available:
+
+```bash
+cd src/onnx-runtime
+npm run formats:plan
+npm run formats:build
+npm run formats:dry-run
+npm run formats:deploy
+```
+
+The release registry excludes retired formats and expects each active format under `data/releases/<format>`. Empty dataset exports are skipped; a nonempty dataset without a complete model artifact stops the release. Each eligible format is staged and deployed as a separate Worker so its model and reduced runtime remain below the Cloudflare Workers Free bundle limit. Exported Workers apply the same deterministic family backoff used in evaluation and optionally fold an artifact-local `family_relations.json` into the serving map. The private runtime and full release contract live in [`src/onnx-runtime`](src/onnx-runtime).
 
 ## Candidate Reports
 
