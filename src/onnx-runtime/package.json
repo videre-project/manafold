@@ -1,0 +1,26 @@
+{
+  "name": "manafold-onnx-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "npm run prepare:runtime",
+    "prepare:runtime": "node scripts/prepare-runtime.mjs",
+    "formats:plan": "node scripts/release-formats.mjs plan",
+    "formats:build": "node scripts/release-formats.mjs build",
+    "formats:dry-run": "node scripts/release-formats.mjs dry-run",
+    "formats:deploy": "node scripts/release-formats.mjs deploy",
+    "build:runtime:reduced": "bazel run //:build_onnxruntime",
+    "prepare:runtime:reduced": "node scripts/prepare-runtime.mjs --runtime-dir runtime/generated",
+    "test": "node --test test/*.test.js",
+    "dev": "wrangler dev",
+    "deploy": "npm run formats:deploy",
+    "dry-run": "npm run formats:dry-run"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.27.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.114.0"
+  }
+}

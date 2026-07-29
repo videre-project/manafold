@@ -1,0 +1,23 @@
+{
+  "formats": [
+    "standard",
+    "modern",
+    "pioneer",
+    "vintage",
+    "legacy",
+    "pauper",
+    "premodern",
+    "extended",
+    "classic"
+  ],
+  "retired_formats": [
+    "extended",
+    "classic"
+  ],
+  "family_relations": {
+    "modern": "data/auto_ontology_induction_v0_20260708.json"
+  },
+  "dataset_pattern": "data/releases/{format}/dataset",
+  "artifact_pattern": "data/releases/{format}/model",
+  "family_metrics_pattern": "data/releases/{format}/family_metrics.json"
+}

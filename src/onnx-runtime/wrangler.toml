@@ -1,0 +1,9 @@
+name = "manafold-modern"
+main = "src/worker.js"
+compatibility_date = "2026-07-27"
+workers_dev = false
+preview_urls = false
+rules = [
+  { type = "Data", globs = ["**/*.bin"], fallthrough = true },
+  { type = "CompiledWasm", globs = ["**/*.wasm"], fallthrough = true }
+]
