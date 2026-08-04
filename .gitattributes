@@ -1,0 +1,2 @@
+# Exclude all Jupyter Notebooks
+*.ipynb linguist-vendored
