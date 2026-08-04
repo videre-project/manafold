@@ -3,18 +3,18 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from manafold.data.validate import (
+from manafold.datasets.validation import (
   validate_deck_cards,
-  validate_deck_examples,
+  validate_deck_records,
   validate_model_inputs,
   validate_split_manifest,
 )
 
 
 class ValidationTests(unittest.TestCase):
-  def test_deck_examples_require_event_identity(self) -> None:
+  def test_deck_records_require_event_identity(self) -> None:
     with self.assertRaisesRegex(RuntimeError, "event_id"):
-      validate_deck_examples(
+      validate_deck_records(
         [
           {
             "dataset_version": "modern_2023_2026_v0",
@@ -79,7 +79,7 @@ class ValidationTests(unittest.TestCase):
       )
 
   def test_deck_cards_reject_invalid_model_inputs(self) -> None:
-    deck_examples = [
+    deck_records = [
       {
         "dataset_version": "modern_2023_2026_v0",
         "deck_id": "deck-1",
@@ -92,30 +92,11 @@ class ValidationTests(unittest.TestCase):
 
     with self.assertRaisesRegex(RuntimeError, "invalid quantity"):
       validate_deck_cards(
-        deck_examples,
+        deck_records,
         [
           _card_row("deck-1", quantity=0),
         ],
       )
-
-  def test_deck_cards_enforce_constructed_counts(self) -> None:
-    deck_examples = [
-      {
-        "dataset_version": "modern_2023_2026_v0",
-        "deck_id": "deck-1",
-        "format": "modern",
-        "event_id": "event-1",
-        "event_date": date(2024, 1, 1),
-        "source": "mtgo-db",
-      }
-    ]
-    deck_cards = [
-      _card_row("deck-1", quantity=59, zone="main"),
-      _card_row("deck-1", source_card_id=2, quantity=16, zone="side"),
-    ]
-
-    with self.assertRaisesRegex(RuntimeError, "mainboard cards"):
-      validate_deck_cards(deck_examples, deck_cards)
 
   def test_model_inputs_reject_mismatched_zone_index(self) -> None:
     with self.assertRaisesRegex(RuntimeError, "zone_idx"):

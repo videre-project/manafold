@@ -3,23 +3,35 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from manafold.models import train as model_training
-from manafold.models.metrics import classification_metrics
-from manafold.models.rolling import (
+import torch
+
+from manafold.models.training import training_pipeline as model_training
+from manafold.models.evaluation.prediction_metrics import _fit_temperature, classification_metrics
+from manafold.models.training.rolling_evaluation import (
   parse_rolling_window,
   summarize_across_window_diagnostics,
   summarize_rolling_window_results,
 )
-from manafold.models.taxonomy import (
+from manafold.models.evaluation.taxonomy_metrics import taxonomy_metrics
+from manafold.taxonomy import (
   TaxonomyAliasRule,
   TaxonomyEvaluationConfig,
   label_id_for,
-  taxonomy_metrics,
 )
 from tests.model_test_support import _prediction
 
 
 class ModelEvaluationTests(unittest.TestCase):
+  def test_temperature_fit_is_bounded_for_extreme_logits(self) -> None:
+    temperature = _fit_temperature(
+      torch.tensor([[1000.0, -1000.0], [-1000.0, 1000.0]]),
+      torch.tensor([0, 1]),
+    )
+
+    self.assertTrue(torch.isfinite(torch.tensor(temperature)))
+    self.assertGreaterEqual(temperature, 0.05)
+    self.assertLessEqual(temperature, 100.0)
+
   def test_parse_rolling_window(self) -> None:
     window = parse_rolling_window(
       "window_1,2023-01-01,2025-06-30,2025-12-31,2026-06-30,2026-12-31"

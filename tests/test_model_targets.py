@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from manafold.data.export import build_proxy_targets
+from manafold.datasets.mtgo.build import build_proxy_targets
 
 
 class ModelTargetTests(unittest.TestCase):

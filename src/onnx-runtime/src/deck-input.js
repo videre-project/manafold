@@ -49,7 +49,7 @@ export function parseDeck(body, state) {
       error: {
         error: uniqueUnknownCards.length ? "Unknown cards" : "Invalid JSON",
         message: uniqueUnknownCards.length
-          ? "The request must contain at least one card recognized by this Manafold artifact."
+          ? "The request must contain at least one card recognized by this Manafold saved model."
           : "The request body must contain at least one recognized card.",
         unknown_cards: uniqueUnknownCards.slice(0, 25),
       },

@@ -4,13 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from manafold.models.data import build_model_examples, load_training_dataset
+from manafold.datasets.model_inputs import build_training_inputs, load_training_dataset
 from tests.model_test_support import _proxy_target, _split, _token, _write_dataset
 
 
 class ModelDataTests(unittest.TestCase):
   def test_model_examples_group_variable_sized_decks(self) -> None:
-    examples = build_model_examples(
+    examples = build_training_inputs(
       deck_tokens=[
         _token("deck-1", 1, 4),
         _token("deck-1", 2, 2),

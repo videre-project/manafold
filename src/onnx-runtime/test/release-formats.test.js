@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { loadReleasePlan } from "../scripts/release-formats.mjs";
 
-const artifactFiles = [
+const savedModelFiles = [
   "model.pt",
   "model_config.json",
   "card_vocab.parquet",
@@ -22,12 +22,7 @@ test("release planning skips retired and empty formats", async () => {
     const configPath = await writeConfig(workspace);
     await writeDataset(workspace, "standard", 0, 0);
     await writeDataset(workspace, "modern", 120, 118);
-    await writeArtifact(workspace, "modern");
-    await writeFile(
-      resolve(workspace, "data/modern-relations.json"),
-      JSON.stringify({ proposed_edges: [] }),
-    );
-
+    await writeSavedModel(workspace, "modern");
     const plan = await loadReleasePlan({ configPath, workspace });
     assert.deepEqual(
       Object.fromEntries(plan.entries.map(({ format, status }) => [format, status])),
@@ -41,14 +36,14 @@ test("release planning skips retired and empty formats", async () => {
     assert.equal(plan.entries[1].deck_count, 120);
     assert.equal(
       plan.entries[1].family_relations,
-      resolve(workspace, "data/modern-relations.json"),
+      resolve(workspace, "data/releases/modern/model/family_relations.json"),
     );
   } finally {
     await rm(workspace, { force: true, recursive: true });
   }
 });
 
-test("a nonempty dataset requires a complete model artifact", async () => {
+test("a nonempty dataset requires a complete saved model", async () => {
   const workspace = await mkdtemp(resolve(tmpdir(), "manafold-release-"));
   try {
     const configPath = await writeConfig(workspace);
@@ -59,8 +54,29 @@ test("a nonempty dataset requires a complete model artifact", async () => {
       workspace,
       selectedFormats: ["modern"],
     });
-    assert.equal(plan.entries[0].status, "missing_artifact");
-    assert.deepEqual(plan.entries[0].missing_artifact_files, artifactFiles);
+    assert.equal(plan.entries[0].status, "missing_saved_model");
+    assert.deepEqual(plan.entries[0].missing_saved_model_files, savedModelFiles);
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
+test("a saved model requires generated family relations", async () => {
+  const workspace = await mkdtemp(resolve(tmpdir(), "manafold-release-"));
+  try {
+    const configPath = await writeConfig(workspace);
+    await writeDataset(workspace, "modern", 120, 118);
+    await writeSavedModel(workspace, "modern");
+    await rm(
+      resolve(workspace, "data/releases/modern/model/family_relations.json"),
+    );
+
+    const plan = await loadReleasePlan({
+      configPath,
+      workspace,
+      selectedFormats: ["modern"],
+    });
+    assert.equal(plan.entries[0].status, "missing_family_relations");
   } finally {
     await rm(workspace, { force: true, recursive: true });
   }
@@ -71,7 +87,7 @@ test("release planning rejects weights trained for another format", async () => 
   try {
     const configPath = await writeConfig(workspace);
     await writeDataset(workspace, "modern", 120, 118);
-    await writeArtifact(workspace, "modern");
+    await writeSavedModel(workspace, "modern");
     await writeFile(
       resolve(workspace, "data/releases/modern/model/training_manifest.json"),
       JSON.stringify({
@@ -85,7 +101,7 @@ test("release planning rejects weights trained for another format", async () => 
       workspace,
       selectedFormats: ["modern"],
     });
-    assert.equal(plan.entries[0].status, "invalid_artifact");
+    assert.equal(plan.entries[0].status, "invalid_saved_model");
   } finally {
     await rm(workspace, { force: true, recursive: true });
   }
@@ -97,11 +113,9 @@ async function writeConfig(workspace) {
     formats: ["standard", "modern", "extended", "classic"],
     retired_formats: ["extended", "classic"],
     dataset_pattern: "data/releases/{format}/dataset",
-    artifact_pattern: "data/releases/{format}/model",
+    saved_model_pattern: "data/releases/{format}/model",
     family_metrics_pattern: "data/releases/{format}/family_metrics.json",
-    family_relations: {
-      modern: "data/modern-relations.json",
-    },
+    family_relations_pattern: "data/releases/{format}/model/family_relations.json",
   }));
   return path;
 }
@@ -119,10 +133,10 @@ async function writeDataset(workspace, format, deckCount, targetCount) {
   }));
 }
 
-async function writeArtifact(workspace, format) {
+async function writeSavedModel(workspace, format) {
   const directory = resolve(workspace, `data/releases/${format}/model`);
   await mkdir(directory, { recursive: true });
-  await Promise.all(artifactFiles.map((filename) => writeFile(
+  await Promise.all(savedModelFiles.map((filename) => writeFile(
     resolve(directory, filename),
     filename === "training_manifest.json"
       ? JSON.stringify({
@@ -137,5 +151,9 @@ async function writeArtifact(workspace, format) {
       dataset_version: `${format}_2024_2026_v0`,
       metrics: { accuracy: 0.9 },
     }),
+  );
+  await writeFile(
+    resolve(directory, "family_relations.json"),
+    JSON.stringify({ proposed_components: [] }),
   );
 }

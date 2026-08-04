@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from manafold.models import train as model_training
+from manafold.models.training import training_pipeline as model_training
 from tests.model_test_support import _write_dataset
 
 
@@ -15,7 +15,7 @@ class ModelExperimentTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      small_package_config = model_training.run_model_training(
+      small_package_config = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_HEAD_V2,),
         epochs=1,
@@ -25,7 +25,7 @@ class ModelExperimentTests(unittest.TestCase):
         package_max_count=8,
         package_projection_dim=4,
       )
-      large_package_config = model_training.run_model_training(
+      large_package_config = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_HEAD_V2,),
         epochs=1,
@@ -72,7 +72,7 @@ class ModelExperimentTests(unittest.TestCase):
         )
       )
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_POOLED_LINEAR,),
         epochs=1,
@@ -123,7 +123,7 @@ class ModelExperimentTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(
           model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED,
@@ -165,7 +165,7 @@ class ModelExperimentTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_PACKAGES,),
         epochs=3,
@@ -226,7 +226,7 @@ class ModelExperimentTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path, final_holdout=True)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(
           model_training.MODEL_POOLED_LINEAR,
@@ -262,7 +262,7 @@ class ModelExperimentTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(
           model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_ZERO_PACKAGES,
@@ -307,7 +307,7 @@ class ModelExperimentTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_PROTOTYPE,),
         epochs=3,
@@ -332,7 +332,7 @@ class ModelExperimentTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_SET_TRANSFORMER_QUANTITY_WEIGHTED,),
         epochs=1,

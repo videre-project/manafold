@@ -8,11 +8,11 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from manafold.models import train as model_training
-from manafold.models.aliases import run_alias_candidate_scoring
-from manafold.models.weak_relations import run_weak_relation_graph
-from manafold.models.weak_state import run_weak_relation_state
-from manafold.models.weak_targets import run_weak_target_preview
+from manafold.models.training import training_pipeline as model_training
+from manafold.taxonomy.aliases import run_alias_candidate_scoring
+from manafold.taxonomy.weak_relations import run_weak_relation_graph
+from manafold.taxonomy.weak_state import run_weak_relation_state
+from manafold.taxonomy.weak_targets import run_weak_target_preview
 from tests.model_test_support import _write_alias_candidate_dataset, _write_dataset
 
 
@@ -222,7 +222,7 @@ class ModelEvidenceTests(unittest.TestCase):
             "model_family": model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED,
             "model_version": "model:v0",
             "deck_embedding_count": 2,
-            "model_artifact": "artifact",
+            "saved_model": "saved-model",
             "dataset_path": str(dataset_path),
           }
         ),

@@ -1,29 +1,23 @@
-# Manafold Cloudflare Runtime
+# Manafold Cloudflare runtime
 
-This package builds and deploys private, format-specific Manafold Workers. Every Worker contains one model bundle and the shared operator-reduced ONNX Runtime Web build. Public routing and API policy remain in `api-services/services/videre-ml`.
+This package builds and deploys format-specific Cloudflare Worker services. Each Worker packages a trained model artifact alongside an operator-reduced ONNX Runtime Web build. The public routing layer and API policies are managed separately in `api-services/services/videre-ml`.
 
-## Release Inputs
+## Release inputs
 
-[`formats.json`](formats.json) defines the active database formats, retired formats, and release directory convention:
+The [`formats.json`](formats.json) configuration file defines active game formats, retired formats, and file path locations:
 
 ```text
 data/releases/<format>/dataset
 data/releases/<format>/model
 ```
 
-The dataset directory must contain `dataset_manifest.json`. The model directory must contain a complete Manafold scoring artifact. `Extended` and `Classic` are retired and never enter the release. A zero-row dataset is also skipped. A missing dataset or a nonempty dataset without its model artifact is treated as a release error.
+The dataset directory requires `dataset_manifest.json`, while the model directory must contain a complete saved model along with its generated `family_relations.json` file. Retired formats like Extended and Classic are omitted from deployment. The pipeline skips empty dataset directories and halts with an error if a non-empty dataset is missing its saved model.
 
-Every exported bundle includes deterministic serving-time family backoff. Color
-prefixes are relaxed for descriptive archetypes while macro-archetype
-boundaries such as Azorius Control and Dimir Control remain distinct. A model
-artifact may also contain `family_relations.json` with seed-free auto-ontology
-proposals. The release pipeline folds its semantic `alias`, `same_family`, and
-`sibling_variant` edges into the exported family map without shipping the
-relation artifact itself.
+Exported model bundles apply serving-time family backoff automatically. The system simplifies color prefixes for descriptive archetypes while preserving distinct macro-archetypes like Azorius Control and Dimir Control. The deployment script resolves the relation file using the configured `family_relations_pattern`, merging alias, family, and sibling variant edges into the compiled serving map without deploying the raw relation file.
 
-## Build And Deploy
+## Build and deploy
 
-Install the JavaScript dependencies once, then run the desired release phase:
+Install JavaScript dependencies first, then execute the deployment workflow steps:
 
 ```bash
 npm install
@@ -33,25 +27,25 @@ npm run formats:dry-run
 npm run formats:deploy
 ```
 
-`formats:build` compiles the reduced runtime once and creates an isolated bundle under `dist/onnx-formats/<format>` for every eligible format. `formats:dry-run` also asks Wrangler to validate each bundle. `formats:deploy` publishes each bundle as `manafold-<format>`.
+The `formats:build` command compiles the reduced runtime binary once and creates isolated build artifacts under `dist/onnx-formats/<format>` for each format. The `formats:dry-run` step validates worker bundles using Wrangler, and `formats:deploy` publishes each Worker under the name `manafold-<format>`.
 
-Limit a command to one or more formats during development:
+To target specific formats during development, pass the format flag:
 
 ```bash
 npm run formats:build -- --format modern
 npm run formats:dry-run -- --format pioneer
 ```
 
-The generated Workers have no public route or `workers.dev` endpoint. `videre-ml` reaches them through Service Bindings.
+Deploys create worker services without public routes or `workers.dev` endpoints, allowing `videre-ml` to connect securely through Service Bindings.
 
-## Local Development
+## Local development
 
-The source runtime can still be run directly after exporting one model into `src/model` and installing the reduced runtime:
+To run the local development server, export a model into `src/model` and compile the runtime:
 
 ```bash
 bazel run //:export_onnx -- \
   --format modern \
-  --model-artifact data/releases/modern/model \
+  --saved-model data/releases/modern/model \
   --family-relations data/releases/modern/model/family_relations.json \
   --ranking-dataset data/releases/modern/dataset \
   --output-dir src/onnx-runtime/src/model \
@@ -61,7 +55,7 @@ cd src/onnx-runtime
 npm run dev
 ```
 
-The private endpoint accepts the request forwarded by the public router:
+Test the local endpoint with a sample request:
 
 ```bash
 curl -s 'http://127.0.0.1:8787/predict?format=modern' \
@@ -70,18 +64,12 @@ curl -s 'http://127.0.0.1:8787/predict?format=modern' \
   --data '[{"name":"Amped Raptor","quantity":4},{"name":"Guide of Souls","quantity":4}]'
 ```
 
-## Runtime Notes
+## Runtime notes
 
-The Worker uses ONNX Runtime Web with WASM compiled by Wrangler. Bazel builds an operator-reduced runtime from pinned dependencies and installs the matching JavaScript loader. The loader accepts Cloudflare's precompiled `WebAssembly.Module`, and inference uses one thread.
+The Worker runs ONNX Runtime Web using a single-threaded WebAssembly module managed by Wrangler. Bazel builds the operator-reduced runtime binary from pinned dependencies and installs the corresponding JavaScript loader interface.
 
-Input preparation follows the exported model manifest. Quantity-weighted models receive raw copy counts. Hypergeometric Set Transformer models receive the normalized draw probabilities used during training. Mainboard-only artifacts discard sideboard entries before inference. Temperature-scaled raw-label probabilities are aggregated through the exported family map before top-k filtering, so related source labels do not split the served probability mass.
+Input formatting matches the model configuration: quantity-weighted models receive raw card counts, while Set Transformer models receive normalized draw probabilities. Mainboard-only models filter out sideboard cards prior to inference. Raw output probabilities are scaled by temperature parameters and aggregated across the family map before top-k filtering, preventing related labels from dividing probability mass.
 
-Each prediction includes a compact `ranking` of submitted cards that are
-distinctive for that family in the model's training split. Rankings use
-smoothed mainboard adoption lift, include only cards scoring at least `0.15`,
-and are capped at eight cards. They are decision evidence for clients, not
-causal model attributions.
+Each prediction includes a card ranking showing up to eight distinctive mainboard cards scoring at least 0.15 in adoption lift. These rankings provide descriptive evidence for client applications rather than causal attributions.
 
-Cards outside an artifact's vocabulary are skipped and reported through
-`meta.unknown_card_count` and `meta.unknown_cards`. A request fails only when
-no recognized cards remain.
+Unrecognized cards are skipped and recorded in `meta.unknown_card_count` and `meta.unknown_cards`. Inference fails only when a deck contains no recognized cards.

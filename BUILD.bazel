@@ -7,7 +7,7 @@ py_library(
   name = "manafold_lib",
   srcs = glob(
     ["src/manafold/**/*.py"],
-    exclude = ["src/manafold/cli.py"],
+    exclude = ["src/manafold/cli/__main__.py"],
   ),
   imports = ["src"],
   deps = [
@@ -21,8 +21,8 @@ py_library(
 
 py_binary(
   name = "manafold",
-  srcs = ["src/manafold/cli.py"],
-  main = "src/manafold/cli.py",
+  srcs = ["src/manafold/cli/__main__.py"],
+  main = "src/manafold/cli/__main__.py",
   imports = ["src"],
   deps = [":manafold_lib"],
 )
@@ -69,14 +69,6 @@ py_binary(
     "@pypi//onnx",
     "@pypi//onnxruntime",
   ],
-)
-
-py_binary(
-  name = "evaluate_family_backoff",
-  srcs = ["scripts/evaluate_family_backoff.py"],
-  main = "scripts/evaluate_family_backoff.py",
-  imports = ["src"],
-  deps = [":manafold_lib"],
 )
 
 py_test(
@@ -127,6 +119,54 @@ py_test(
   deps = [":manafold_lib"],
 )
 
+py_test(
+  name = "cli_tests",
+  srcs = ["tests/test_cli.py"],
+  main = "tests/test_cli.py",
+  imports = ["src"],
+  deps = [":manafold_lib"],
+)
+
+[
+  py_test(
+    name = name,
+    srcs = [src],
+    main = src,
+    imports = ["src"],
+    deps = [":manafold_lib"],
+  )
+  for name, src in (
+    ("anchor_gate_tests",      "tests/test_anchor_gate.py"),
+    ("causal_target_tests",    "tests/test_causal_targets.py"),
+    ("dataset_build_tests",    "tests/test_dataset_build.py"),
+    ("hyperbolic_tests",       "tests/test_hyperbolic.py"),
+    ("lorentz_tests",          "tests/test_lorentz.py"),
+    ("mtgo_database_tests",    "tests/test_mtgo_database.py"),
+    ("package_boundary_tests", "tests/test_package_boundaries.py"),
+    ("product_manifold_tests", "tests/test_product_manifold.py"),
+    ("supcon_tests",           "tests/test_supcon.py"),
+  )
+]
+
+py_test(
+  name = "onnx_export_tests",
+  srcs = [
+    "scripts/export_onnx.py",
+    "tests/test_onnx_export.py",
+  ],
+  main = "tests/test_onnx_export.py",
+  imports = [
+    ".",
+    "src",
+  ],
+  deps = [
+    ":manafold_lib",
+    ":model_test_support",
+    "@pypi//onnx",
+    "@pypi//onnxruntime",
+  ],
+)
+
 py_library(
   name = "model_test_support",
   srcs = ["tests/model_test_support.py"],
@@ -153,13 +193,14 @@ py_library(
     ],
   )
   for name, src in (
-    ("model_architecture_tests", "tests/test_model_architectures.py"),
-    ("model_artifact_tests", "tests/test_model_artifacts.py"),
-    ("model_data_tests", "tests/test_model_data.py"),
+    ("auto_ontology_tests",    "tests/test_auto_ontology.py"),
+    ("classifier_tests",       "tests/test_classifiers.py"),
+    ("saved_model_tests",      "tests/test_saved_models.py"),
+    ("model_data_tests",       "tests/test_model_data.py"),
     ("model_evaluation_tests", "tests/test_model_evaluation.py"),
-    ("model_evidence_tests", "tests/test_model_evidence.py"),
+    ("model_evidence_tests",   "tests/test_model_evidence.py"),
     ("model_experiment_tests", "tests/test_model_experiments.py"),
-    ("model_training_tests", "tests/test_model_training.py"),
+    ("model_training_tests",   "tests/test_model_training.py"),
   )
 ]
 

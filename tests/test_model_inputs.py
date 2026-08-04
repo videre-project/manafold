@@ -3,15 +3,15 @@ from __future__ import annotations
 import unittest
 from datetime import date, datetime, timezone
 
-from manafold.data.export import (
-  DatasetExportOptions,
-  ZONE_VOCAB,
+from manafold.datasets.mtgo.build import (
+  DatasetBuildOptions,
   _build_dataset_manifest,
   _build_split_manifest,
-  _validate_export_options,
+  _validate_build_options,
   build_card_vocab,
   build_deck_tokens,
 )
+from manafold.datasets.schemas import ZONE_VOCAB
 
 
 class ModelInputTests(unittest.TestCase):
@@ -31,6 +31,7 @@ class ModelInputTests(unittest.TestCase):
           "card_idx": 0,
           "oracle_id": "oracle-a",
           "primary_name": "Example Card",
+          "type_line": None,
           "first_seen_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
           "last_seen_at": datetime(2024, 1, 2, tzinfo=timezone.utc),
         },
@@ -39,6 +40,7 @@ class ModelInputTests(unittest.TestCase):
           "card_idx": 1,
           "oracle_id": "oracle-b",
           "primary_name": "Zagoth Triome",
+          "type_line": None,
           "first_seen_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
           "last_seen_at": datetime(2024, 1, 2, tzinfo=timezone.utc),
         },
@@ -83,7 +85,7 @@ class ModelInputTests(unittest.TestCase):
     )
 
   def test_split_manifest_can_create_fresh_final_holdout(self) -> None:
-    options = DatasetExportOptions(
+    options = DatasetBuildOptions(
       format_code="modern",
       start=date(2024, 1, 1),
       end=date(2024, 12, 31),
@@ -97,10 +99,10 @@ class ModelInputTests(unittest.TestCase):
     )
     split_manifest = _build_split_manifest(
       [
-        _deck_example("deck-1", "event-1", date(2024, 1, 1)),
-        _deck_example("deck-2", "event-2", date(2024, 5, 1)),
-        _deck_example("deck-3", "event-3", date(2024, 8, 1)),
-        _deck_example("deck-4", "event-4", date(2024, 11, 1)),
+        _deck_record("deck-1", "event-1", date(2024, 1, 1)),
+        _deck_record("deck-2", "event-2", date(2024, 5, 1)),
+        _deck_record("deck-3", "event-3", date(2024, 8, 1)),
+        _deck_record("deck-4", "event-4", date(2024, 11, 1)),
       ],
       options,
       "modern_2024_2024_v0",
@@ -117,8 +119,8 @@ class ModelInputTests(unittest.TestCase):
       {row["split_strategy"] for row in split_manifest},
     )
 
-  def test_export_options_require_strict_split_boundaries(self) -> None:
-    options = DatasetExportOptions(
+  def test_build_options_require_strict_split_boundaries(self) -> None:
+    options = DatasetBuildOptions(
       format_code="modern",
       start=date(2024, 1, 1),
       end=date(2024, 12, 31),
@@ -130,11 +132,11 @@ class ModelInputTests(unittest.TestCase):
       env_file=None,
       limit_events=None,
     )
-    _validate_export_options(options)
+    _validate_build_options(options)
 
     with self.assertRaisesRegex(ValueError, "before --validation-end"):
-      _validate_export_options(
-        DatasetExportOptions(
+      _validate_build_options(
+        DatasetBuildOptions(
           format_code="modern",
           start=date(2024, 1, 1),
           end=date(2024, 12, 31),
@@ -149,8 +151,8 @@ class ModelInputTests(unittest.TestCase):
       )
 
     with self.assertRaisesRegex(ValueError, "before --end"):
-      _validate_export_options(
-        DatasetExportOptions(
+      _validate_build_options(
+        DatasetBuildOptions(
           format_code="modern",
           start=date(2024, 1, 1),
           end=date(2024, 12, 31),
@@ -164,8 +166,8 @@ class ModelInputTests(unittest.TestCase):
         )
       )
 
-  def test_empty_export_manifest_can_gate_format_training(self) -> None:
-    options = DatasetExportOptions(
+  def test_empty_dataset_manifest_can_gate_format_training(self) -> None:
+    options = DatasetBuildOptions(
       format_code="premodern",
       start=date(2024, 1, 1),
       end=date(2024, 12, 31),
@@ -242,7 +244,7 @@ def _deck_card(
   }
 
 
-def _deck_example(
+def _deck_record(
   deck_id: str,
   event_id: str,
   event_date: date,

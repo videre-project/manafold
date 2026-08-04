@@ -4,14 +4,14 @@ import unittest
 
 import torch
 
-from manafold.models.family_backoff import (
+from manafold.taxonomy.family_backoff import (
   aggregate_family_probabilities,
   build_family_mapping,
   build_family_vocab,
   extract_proposed_edges,
   relaxed_archetype_name,
 )
-from manafold.models.family_evaluation import _classification_metrics
+from manafold.models.evaluation.family_classification import _classification_metrics
 
 
 class FamilyBackoffTests(unittest.TestCase):
@@ -87,6 +87,20 @@ class FamilyBackoffTests(unittest.TestCase):
   def test_extract_proposed_edges_rejects_invalid_payload(self) -> None:
     with self.assertRaisesRegex(ValueError, "edge array"):
       extract_proposed_edges({"proposed_edges": "not-an-array"})
+
+  def test_extract_proposed_edges_accepts_induction_components(self) -> None:
+    edges = extract_proposed_edges({
+      "proposed_components": [{
+        "accepted_proposal_edges": [{
+          "label_a": "Example Engine",
+          "label_b": "Legacy Engine",
+          "proposed_relation": "same_family",
+        }],
+      }],
+    })
+
+    self.assertEqual(1, len(edges))
+    self.assertEqual("Example Engine", edges[0]["label_a"])
 
   def test_family_metrics_include_open_and_closed_family_views(self) -> None:
     metrics = _classification_metrics(

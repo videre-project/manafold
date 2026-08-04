@@ -69,7 +69,7 @@ export default {
     if (format !== SUPPORTED_FORMAT) {
       return jsonResponse({
         error: "Invalid format",
-        message: `The 'format' parameter '${format}' is not supported by this Manafold artifact.`,
+        message: `The 'format' parameter '${format}' is not supported by this Manafold saved model.`,
       }, 400);
     }
 

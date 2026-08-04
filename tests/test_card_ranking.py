@@ -4,8 +4,8 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from manafold.models.card_ranking import build_family_card_ranking
-from manafold.models.data import DeckToken, ModelExample, TrainingDataset
+from manafold.models.features.family_card_ranking import build_family_card_ranking
+from manafold.datasets.model_inputs import DeckToken, DeckModelInput, TrainingDataset
 
 
 class CardRankingTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class CardRankingTests(unittest.TestCase):
     )
     ranking = build_family_card_ranking(
       dataset,
-      artifact_card_vocab=dataset.card_vocab,
+      saved_card_vocab=dataset.card_vocab,
       family_vocab={
         "families": [
           {"family_id": "family.alpha"},
@@ -62,8 +62,8 @@ class CardRankingTests(unittest.TestCase):
     cards: tuple[int, ...],
     *,
     split: str = "train",
-  ) -> ModelExample:
-    return ModelExample(
+  ) -> DeckModelInput:
+    return DeckModelInput(
       dataset_version="test",
       deck_id=deck_id,
       event_id=f"event-{deck_id}",

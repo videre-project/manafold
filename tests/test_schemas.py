@@ -4,7 +4,7 @@ import unittest
 
 import pyarrow as pa
 
-from manafold.data.validate import parquet_schema
+from manafold.datasets.schemas import parquet_schema
 
 
 class SchemaTests(unittest.TestCase):

@@ -107,7 +107,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     "--ops-config",
     type=Path,
     default=Path("src/onnx-runtime/runtime/required_operators.config"),
-    help="Reduced-operator configuration shared by deployable set-model artifacts.",
+    help="Reduced-operator configuration shared by deployable set-saved models.",
   )
   parser.add_argument(
     "--output-dir",

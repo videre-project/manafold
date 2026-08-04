@@ -1,82 +1,51 @@
-# manafold
+# Manafold
 
 Model-assisted archetype classification for Magic: The Gathering decklists.
 
 ## Overview
 
-Manafold is the model layer that turns MTGO decklists and events into archetype predictions, confidence scores, and deck embeddings. It consumes exports from [`mtgo-db`](https://github.com/videre-project/mtgo-db), trains event-forward classifiers over card/zone/count tokens, saves reusable scoring artifacts, and backfills deck-level predictions for downstream Videre APIs and services.
+Manafold classifies Magic: The Gathering decklists into archetype predictions, confidence scores, and deck vector embeddings for the Videre Project.
 
-The project is designed around a stable data and scoring contract:
+The service ingests deck exports from `mtgo-db` and trains event-forward classifiers over mainboard card, zone, and quantity tokens. Model outputs backfill archetype predictions and embeddings for downstream Videre applications while identifying label drift, missing annotations, name aliases, and ambiguous archetype assignments.
 
-```text
-mtgo-db export
-  -> deck-token dataset
-  -> event-forward model training
-  -> versioned scoring artifact
-  -> prediction and embedding backfill
-  -> disagreement, low-confidence, and unknown-label reports
-```
+Scoring flows sequentially from dataset extraction through event-forward training, versioned model persistence, batch prediction backfill, and anomaly reporting. Upstream archetype names provide reference labels for baseline supervision.
 
-Upstream archetype names are treated as source labels with provenance. They provide supervision for the reference baselines, while the model outputs help identify label drift, missing labels, likely aliases, and decks whose archetype assignment is uncertain.
+## Reference baselines
 
-## Reference Baselines
+Manafold benchmarks new architectures against the `pooled-linear` (`A0`), quantity-aware Deep Sets (`A1`), and regularized quantity-aware Deep Sets (`A1.5`) baselines. These models share identical dataset exports, temporal split protocols, and scoring interfaces.
 
-Manafold compares new approaches against a small set of reference baselines that share the same dataset export, split protocol, and scoring interface. The included baselines cover three useful levels of complexity:
+The `pooled-linear` baseline measures accuracy using normalized card counts without learned embeddings. The `a1` Deep Sets model adds learned card, zone, and quantity representations, while the `a1.5` variant applies weight decay to the set representation. Together, these baselines establish the saved model format, prediction schemas, uncertainty metrics, and vector interfaces used throughout the pipeline.
 
-```text
-A0   pooled-linear
-A1   quantity-aware Deep Sets
-A1.5 regularized quantity-aware Deep Sets
-```
+## Project structure
 
-The `pooled-linear` model measures how far normalized card-count features go without learned embeddings. The `deepsets-quantity-weighted` model (`a1`) adds learned card, zone, and quantity representations. The regularized Deep Sets baseline (`a1.5`) adds weight decay regularization to the set representation.
+The codebase separates datasets, label policy, and model execution into distinct module boundaries.
 
-These baselines are intentionally simple and inspectable. They establish the artifact format, prediction schema, uncertainty scores, and deck embedding surface used by the rest of the Manafold pipeline.
+- `src/manafold/datasets/` manages MTGO database access, Parquet export, schema validation, and typed model inputs
+- `src/manafold/taxonomy/` defines family targets, label aliases, and weak-label evidence rules
+- `src/manafold/models/` handles classifier architectures, saved model storage, scoring, evaluation, and training pipelines
+- `src/manafold/cli/` connects command modules into the public command-line interface
 
-## Project Structure
-
-```text
-.
-├── .vscode/settings.json
-├── paper/                # Project paper and bibliography
-│   ├── main.tex
-│   ├── main.pdf
-│   └── references.bib
-├── src/manafold/
-│   ├── data/             # Dataset export, schemas, and validation
-│   └── models/           # Model loading, metrics, and training
-├── BUILD.bazel
-├── MODULE.bazel
-├── pyproject.toml
-├── uv.lock
-├── .bazelrc
-├── .bazelignore
-└── .latexmkrc
-```
+Additional top-level directories include `paper/` for project documentation and references, `notebooks/` for chronological research records, and `scripts/` for ONNX export tooling. We also provide an ONNX runtime for WebAssembly deployment on Cloudflare Workers under `src/onnx-runtime/`.
 
 ## Setup
 
-Manafold uses Bazel for the build and test environment. Bazel fetches Python 3.12, the `uv` binary, and the Python wheels resolved in `uv.lock`.
+Manafold builds and tests using Bazel, which manages Python 3.12, the `uv` executable, and package dependencies locked in `uv.lock`.
 
-Install Bazel or Bazelisk, then verify the repository from its root:
+Execute repository tests from the root directory:
 
 ```bash
 bazel test //...
 ```
 
-Python dependencies flow through:
+Dependencies flow from `pyproject.toml` into `uv.lock` and Bazel's `uv.project()` configuration.
 
-```text
-pyproject.toml -> uv.lock -> Bazel uv.project()
-```
-
-For local editor tooling, create or refresh a `.venv` with the Bazel-managed `uv` binary:
+Sync a local Python environment for editor tooling:
 
 ```bash
 bazel run @uv -- sync --locked
 ```
 
-When Python dependencies change, update the lockfile and rerun the tests:
+When updating dependencies, refresh the lockfile and verify the build:
 
 ```bash
 bazel run @uv -- lock
@@ -85,39 +54,49 @@ bazel test //...
 
 ## Training
 
-`model-train` fits the reference baselines on an event-forward split.
+The `model-train` command fits baseline models on an event-forward split:
 
 ```bash
 bazel run //:manafold -- model-train data/full
 ```
 
-The default run trains:
+The default run trains the `pooled-linear`, `a1` (deepsets-quantity-weighted), and `a1.5` (deepsets-quantity-weighted-regularized) models.
 
-```text
-pooled-linear
-a1 (deepsets-quantity-weighted)
-a1.5 (deepsets-quantity-weighted-regularized)
+The `--deepsets-regularized-weight-decay` flag sets weight decay for the regularized model, which uses a default learning rate of 0.005. Training outputs report event-forward accuracy, top-k accuracy, macro-F1, confusion summaries, abstention metrics, and probability calibration. The trainer fits temperature scaling parameters on validation logits, recording scaled negative log-likelihood, Brier scores, and expected calibration error alongside unscaled metrics.
+
+Supported neural candidate aliases include `a1.5` for the stable baseline, `a2++` for complete-deck classification, `a3` for partial and complete mainboard inference, `a10` for card-evidence paths, and `a11` for direct projected-family classification. Saved models preserve full classifier identifiers for auditability.
+
+The A3 model uses hypergeometric copy weights, partial-view training pairs, and a balanced card sampler. Its exponential moving average teacher network and contextual predictor run only during training, leaving only the core inference network in saved models and ONNX exports.
+
+## A11 training and evaluation
+
+The A11 model trains directly on canonical archetype families induced from core card overlap in the training set. Each A11 training run generates a relation graph from training rows and records a SHA-256 digest of those rows. Saved models store the generated graph and its dataset provenance, allowing evaluation to use the same target projection:
+
+```bash
+bazel run //:manafold -- model-train data/full \
+  --model a11 \
+  --output data/models/modern_a11_current/training_results.json \
+  --seed 13 \
+  --batch-size 1024 \
+  --saved-model-output data/models/modern_a11_current \
+  --saved-model-name a11
+
+bazel run //:manafold -- family-eval \ --saved-model data/models/modern_a11_current \ --dataset data/full \ --output data/models/modern_a11_current/final_test_family_evaluation.json ```
+
+The trainer saves `family_relations.json` next to the training results and copies it into the model directory. Inspect family graph induction without fitting a model:
+
+```bash
+bazel run //:manafold -- family-targets data/full \
+  --output /tmp/manafold-family-relations.json
 ```
 
-The regularized Deep Sets model is configured by `--deepsets-regularized-weight-decay` and uses the same `0.005` default learning rate as the other neural baseline. Training output reports event-forward accuracy, top-k accuracy, macro-F1, confusion summaries, abstention metrics, and calibration metrics. Temperature scaling is fit on validation logits, so temperature-scaled NLL, Brier score, and ECE are reported separately from the unscaled metrics.
+Pass `--partial-identity-count 5`, `10`, or `20` to `family-eval` to evaluate model accuracy on partial mainboard lists. Generated family relations remain experimental targets that require manual review and stability checks before promotion to production vocabularies.
 
-The supported neural candidates are:
+## Scoring with a saved model
 
-| Model | Intended use |
-| --- | --- |
-| `a1.5` | A1.5 stable baseline |
-| `a2++` | A2++ complete-deck classifier |
-| `a3` | A3 partial and complete mainboard inference |
+A saved model directory contains a trained PyTorch model file (`model.pt`), model configuration parameters (`model_config.json`), vocabulary mappings (`card_vocab.parquet`, `label_vocab.json`, `zone_vocab.json`), temperature calibration parameters (`temperature.json`), and a training manifest (`training_manifest.json`). These artifacts allow reproducible batch scoring across dataset exports.
 
-`a1.5`, `a2++`, and `a3` are stable training aliases for their respective neural models (`a15` and `a2pp` are also accepted). Artifacts retain their full architecture identifiers for reproducibility.
-
-The A3 model (`a3`) uses hypergeometric copy weights, paired partial-view training, and a conservative natural/square-root-balanced sampler. Its EMA teacher and contextual predictor are training-only; saved artifacts and ONNX exports contain only the inference network.
-
-## Scoring Artifacts
-
-A scoring artifact is a fitted model plus the vocabularies, calibration files, and training metadata required to run that model on another export. Artifact export records the model state needed for reproducible batch scoring.
-
-To train a single-seed A1.5 artifact:
+Fit and save an A1.5 baseline model using a single random seed:
 
 ```bash
 bazel run //:manafold -- model-train data/full \
@@ -126,106 +105,52 @@ bazel run //:manafold -- model-train data/full \
   --seed 13 \
   --max-steps 2370 \
   --batch-size 1024 \
-  --model-artifact-output data/models/modern_a15_current \
-  --model-artifact-model a1.5
+  --saved-model-output data/models/modern_a15_current \
+  --saved-model-name a1.5
 ```
 
-Artifact export defaults to `--model-artifact-seed-policy single`. A multi-seed run can export its first fitted model with `--model-artifact-seed-policy first`.
-
-The artifact directory contains:
-
-```text
-model.pt
-model_config.json
-card_vocab.parquet
-label_vocab.json
-zone_vocab.json
-temperature.json
-training_manifest.json
-```
+The trainer defaults to `--saved-model-seed-policy single`. For multi-seed runs, `--saved-model-seed-policy first` exports the first fitted model instance.
 
 ## Scoring
 
-`model-score` applies a saved artifact to every deck in a full or incremental export. This is the batch backfill path for producing versioned predictions, probabilities, confidence signals, and deck embeddings.
+The `model-score` command applies a saved model to all decks in a dataset, generating predictions (`model_predictions.parquet`), manifest logs (`model_predictions.manifest.json`), and deck vector embeddings (`model_predictions_deck_embeddings.parquet`):
 
 ```bash
 bazel run //:manafold -- model-score \
-  --model-artifact data/models/modern_a15_current \
+  --saved-model data/models/modern_a15_current \
   --dataset data/full \
   --output data/scored/modern_predictions.parquet
 ```
 
-`model-score` writes:
+The scorer maps deck cards into the saved model vocabulary using Scryfall `oracle_id` values. If an export contains unknown cards or zones, execution halts to allow dataset auditing or model updates.
 
-```text
-model_predictions.parquet
-model_predictions.manifest.json
-model_predictions_deck_embeddings.parquet
-```
+The scoring pipeline processes both labeled and unlabeled decklists. If `proxy_targets.parquet` is missing or a deck lacks a source label, the scorer leaves source label fields empty while generating model predictions, confidence scores, and vector embeddings. Prediction records include deck and event identifiers, source and top-k predicted labels with probabilities, temperature-scaled confidence scores, energy metrics, and model versions.
 
-Scoring uses the vocabularies saved in the artifact. Deck tokens are remapped by `oracle_id` into the artifact card vocabulary, and unknown cards or zones stop the run so the export can be audited or the model can be refreshed.
+The prediction manifest categorizes unmapped rows into `source_unlabeled` (decks without source annotations) and `source_unseen` (source labels falling outside the model vocabulary, signaling taxonomy drift).
 
-The scorer handles labeled and unlabeled decks. When `proxy_targets.parquet` is missing or a deck has no source label, the prediction row keeps `source_label_id` and `source_label` empty while still emitting model predictions, confidence scores, and embeddings.
+## ONNX worker
 
-Prediction rows include:
+The `//:export_onnx` target converts saved models into ONNX bundles, while `//:build_onnxruntime` compiles an operator-reduced WebAssembly runtime using Bazel-managed dependencies.
 
-```text
-deck_id
-event_id
-event_date
-format
-source_label_id
-source_label
-top1_label_id
-top1_label
-top1_probability
-top3_label_ids
-top3_labels
-top3_probabilities
-temperature_scaled_probability
-energy_score
-msp_score
-is_low_confidence
-embedding_id
-model_version
-```
-
-The prediction manifest separates two operational cases:
-
-```text
-source_unlabeled
-  source/proxy label is unavailable; the row is classified from deck tokens.
-
-source_unseen
-  source label exists outside the artifact label vocabulary; this helps identify
-  taxonomy drift, new source strings, and alias checks.
-```
-
-## ONNX Worker
-
-`//:export_onnx` converts a saved A1.5, A2++, or selected Set Transformer artifact into a verified ONNX bundle. `//:build_onnxruntime` builds the operator-reduced ONNX Runtime Web package from dependencies pinned in Bazel.
-
-Build datasets, A3 model artifacts, and private Worker bundles for every active
-format from the repository root:
+Build dataset exports, train A11 models, and package Cloudflare Worker bundles for active game formats:
 
 ```bash
 ./build.sh
 ./deploy.sh
 ```
 
-Pass formats to limit either operation:
+Pass format names to limit execution:
 
 ```bash
 ./build.sh modern pioneer
 ./deploy.sh modern pioneer
 ```
 
-The build dates and training runtime can be overridden with `START_DATE`,
-`TRAIN_END`, `VALIDATION_END`, `END_DATE`, `EPOCHS`, `SEED`, and `DEVICE`.
-Formats with no decks or proxy targets are recorded and skipped. `deploy.sh`
-publishes existing bundles and never retrains or rebuilds them.
+For each format, the build script fits a model on a temporal split to evaluate metrics on an untouched test month. It then trains a production model using all available data up to `END_DATE`. The temporal run supplies epoch counts and temperature calibration parameters, while the full model is packaged for deployment.
 
-The lower-level release commands remain available:
+Environment variables control build parameters including `START_DATE`, `TRAIN_END`, `VALIDATION_END`, `TEST_MONTH`, `END_DATE`, `EPOCHS`, `SEED`, and `DEVICE`. Formats lacking decks or target labels are logged and skipped. The `deploy.sh` script publishes existing worker bundles without retraining models.
+
+Low-level deployment commands in `src/onnx-runtime`:
 
 ```bash
 cd src/onnx-runtime
@@ -235,11 +160,11 @@ npm run formats:dry-run
 npm run formats:deploy
 ```
 
-The release registry excludes retired formats and expects each active format under `data/releases/<format>`. Empty dataset exports are skipped; a nonempty dataset without a complete model artifact stops the release. Each eligible format is staged and deployed as a separate Worker so its model and reduced runtime remain below the Cloudflare Workers Free bundle limit. Exported Workers apply the same deterministic family backoff used in evaluation and optionally fold an artifact-local `family_relations.json` into the serving map. The private runtime and full release contract live in [`src/onnx-runtime`](src/onnx-runtime).
+The release pipeline excludes retired formats and expects input files under `data/releases/<format>`. If a format lacks a saved model or its `family_relations.json` file, the pipeline stops with an error. Each active format deploys as a separate Cloudflare Worker to stay within size limits. Exported Workers bundle their family relation graphs directly into the serving map.
 
-## Candidate Reports
+## Candidate reports
 
-`alias-candidates` turns scored decks into compact reports for taxonomy review and data-quality work. It looks for source/model disagreements, source labels outside the artifact vocabulary, low-confidence predictions, and unlabeled decks that need a model-backed archetype suggestion.
+The `alias-candidates` command analyzes scored decks to produce reports for taxonomy review, highlighting disagreements between source labels and model predictions, unseen source labels, low-confidence classifications, and unlabeled decks needing archetype assignments:
 
 ```bash
 bazel run //:manafold -- alias-candidates \
@@ -249,47 +174,17 @@ bazel run //:manafold -- alias-candidates \
   --output data/scored/alias_candidates.json
 ```
 
-This writes:
+This command produces candidate suggestions (`alias_candidates.json`), weak-label relation observations (`alias_weak_label_observations.jsonl`), and a scoring summary (`backfill_report.json`). Candidate suggestions combine prediction disagreements, card co-occurrence features, unseen source labels, low-confidence scores, and optional embedding neighbors. Labeled rows generate alias or sibling candidates, while unlabeled rows produce unknown deck suggestions.
 
-```text
-alias_candidates.json
-alias_weak_label_observations.jsonl
-backfill_report.json
-```
+The `backfill_report.json` file records total predictions, embedding counts, unmapped label tallies, top predicted labels for unlabeled decks, and saved model metadata. The `alias_weak_label_observations.jsonl` file records structured candidate relations with confidence scores, time windows, and dataset provenance.
 
-Prediction-backed candidates combine source/model disagreements, deck-overlap features, source labels unseen during training, low-confidence predictions, and optional deck-embedding neighbors. Source-labeled rows can become alias or sibling candidates. Unlabeled rows can become unknown-deck candidates.
+## Time-slice evaluation
 
-`backfill_report.json` summarizes the scored export:
-
-```text
-prediction count
-embedding count
-source_unlabeled count
-source_unseen count
-low_confidence count
-top predicted labels for unlabeled decks
-top source-label disagreements
-top low-confidence known-source decks
-top source-unseen labels
-artifact/model version
-```
-
-`alias_weak_label_observations.jsonl` contains machine-readable candidate relations with labels, relation type, confidence, time scope, and provenance.
-
-## Time-Slice Evaluation
-
-Time-slice evaluation measures how the reference baselines behave as the metagame and source labels move forward. Use `--dev-test-end` during dataset export to create a fresh-holdout split, and use `rolling-eval` to compare the same model set across multiple date windows.
-
-Reviewed label mappings can be supplied explicitly:
-
-```text
---taxonomy-eval
---canonical-targets
-```
+Time-slice evaluation measures model accuracy as metagame trends and source labels change over time. Pass `--dev-test-end` during dataset export to create a fresh holdout split, or use `rolling-eval` to compare model performance across multiple date windows. Custom taxonomy mappings can also be supplied using `--taxonomy-eval` and `--canonical-targets`.
 
 ## Citation
 
-If you use Manafold as software, cite the repository:
+Cite Manafold in software or research publications:
 
 ```bibtex
 @software{bennett_manafold_2026,
@@ -309,4 +204,4 @@ Licensed under [OpenMDW-1.1](LICENSE).
 
 ## Disclaimer
 
-This project is not affiliated with Wizards of the Coast or Daybreak Games.
+Manafold is an independent research project and is not affiliated with Wizards of the Coast or Daybreak Games.

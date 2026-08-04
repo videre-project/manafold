@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from manafold.models import train as model_training
+from manafold.models.training import training_pipeline as model_training
 from tests.model_test_support import _write_dataset
 
 
@@ -19,13 +19,22 @@ class ModelTrainingTests(unittest.TestCase):
       ),
     )
 
+  def test_a8_alias_resolves_to_product_anchor_set_transformer(self) -> None:
+    self.assertEqual(
+      (model_training.MODEL_SET_TRANSFORMER_A8,),
+      model_training._normalize_model_names(
+        (model_training.MODEL_A8,),
+        pooling=model_training.POOLING_SUM,
+      ),
+    )
+
   def test_default_models_emit_predictions_metrics_and_embeddings(self) -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
       output = dataset_path / "model_runs" / "training_results.json"
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         output=output,
         epochs=3,
@@ -44,6 +53,13 @@ class ModelTrainingTests(unittest.TestCase):
       self.assertEqual("completed", result["status"])
       self.assertEqual(expected_models, result["model_names"])
       self.assertEqual({"enabled": False}, result["package_mining"])
+      self.assertEqual(
+        {
+          model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED,
+          model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED,
+        },
+        set(result["comparison"]),
+      )
       for model_name in expected_models:
         self.assertIn("metrics", result["models"][model_name])
 
@@ -61,6 +77,13 @@ class ModelTrainingTests(unittest.TestCase):
       } <= prediction.keys())
       self.assertTrue(Path(deepsets["card_embedding_path"]).exists())
       self.assertTrue(Path(deepsets["deck_embedding_path"]).exists())
+      self.assertIn(
+        "closed_set_seen_labels",
+        deepsets["metrics"]["evaluation_views"]["test"],
+      )
+      self.assertIn("energy", deepsets["metrics"]["abstention"])
+      self.assertIsNotNone(deepsets["best_validation_epoch"])
+      self.assertIsNotNone(deepsets["best_validation_metric"])
 
       regularized = result["models"][
         model_training.MODEL_DEEPSETS_QUANTITY_WEIGHTED_REGULARIZED
@@ -73,7 +96,7 @@ class ModelTrainingTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_POOLED_LINEAR,),
         epochs=1,
@@ -94,7 +117,7 @@ class ModelTrainingTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path, final_holdout=True)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(
           model_training.MODEL_POOLED_LINEAR,
@@ -138,7 +161,7 @@ class ModelTrainingTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_POOLED_LINEAR,),
         epochs=10,
@@ -156,7 +179,7 @@ class ModelTrainingTests(unittest.TestCase):
       _write_dataset(dataset_path)
 
       output = dataset_path / "model_runs" / "training_results.json"
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         output=output,
         model_names=(model_training.MODEL_DEEPSETS_SUM,),
@@ -176,7 +199,7 @@ class ModelTrainingTests(unittest.TestCase):
       _write_dataset(dataset_path)
 
       output = dataset_path / "model_runs" / "training_results.json"
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         output=output,
         model_names=(model_training.MODEL_POOLED_LINEAR,),
@@ -194,7 +217,7 @@ class ModelTrainingTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(
           model_training.MODEL_DEEPSETS_PLUSPLUS_REGULARIZED,
@@ -220,7 +243,7 @@ class ModelTrainingTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_SET_TRANSFORMER_PARTIAL_BALANCED,),
         epochs=1,
@@ -257,7 +280,7 @@ class ModelTrainingTests(unittest.TestCase):
       _write_dataset(dataset_path)
 
       output = dataset_path / "model_runs" / "training_results.json"
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         output=output,
         model_names=(model_training.MODEL_POOLED_LINEAR,),
@@ -306,7 +329,7 @@ class ModelTrainingTests(unittest.TestCase):
       dataset_path = Path(temp_dir)
       _write_dataset(dataset_path)
 
-      result = model_training.run_model_training(
+      result = model_training.train_models(
         dataset_path,
         model_names=(model_training.MODEL_DEEPSETS_SUM,),
         epochs=1,

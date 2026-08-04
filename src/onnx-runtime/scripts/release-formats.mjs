@@ -36,11 +36,20 @@ export async function loadReleasePlan({
     }
 
     const dataset = resolvePattern(config.dataset_pattern, workspace, format);
-    const artifact = resolvePattern(config.artifact_pattern, workspace, format);
+    const savedModel = resolvePattern(
+      config.saved_model_pattern,
+      workspace,
+      format,
+    );
     const datasetManifestPath = resolve(dataset, "dataset_manifest.json");
     const datasetManifest = await readJsonIfPresent(datasetManifestPath);
     if (!datasetManifest) {
-      entries.push({ format, status: "missing_dataset", dataset, artifact });
+      entries.push({
+        format,
+        status: "missing_dataset",
+        dataset,
+        saved_model: savedModel,
+      });
       continue;
     }
     if (normalizeFormat(datasetManifest.format) !== format) {
@@ -48,7 +57,7 @@ export async function loadReleasePlan({
         format,
         status: "invalid_dataset",
         dataset,
-        artifact,
+        saved_model: savedModel,
         reason: `dataset manifest declares '${datasetManifest.format}'`,
       });
       continue;
@@ -62,14 +71,14 @@ export async function loadReleasePlan({
         format,
         status: "no_data",
         dataset,
-        artifact,
+        saved_model: savedModel,
         deck_count: deckCount,
         target_count: targetCount,
       });
       continue;
     }
 
-    const requiredArtifactFiles = [
+    const requiredSavedModelFiles = [
       "model.pt",
       "model_config.json",
       "card_vocab.parquet",
@@ -78,21 +87,21 @@ export async function loadReleasePlan({
       "temperature.json",
       "training_manifest.json",
     ];
-    const missingArtifactFiles = [];
-    for (const filename of requiredArtifactFiles) {
-      if (!(await isFile(resolve(artifact, filename)))) {
-        missingArtifactFiles.push(filename);
+    const missingSavedModelFiles = [];
+    for (const filename of requiredSavedModelFiles) {
+      if (!(await isFile(resolve(savedModel, filename)))) {
+        missingSavedModelFiles.push(filename);
       }
     }
-    if (missingArtifactFiles.length) {
+    if (missingSavedModelFiles.length) {
       entries.push({
         format,
-        status: "missing_artifact",
+        status: "missing_saved_model",
         dataset,
-        artifact,
+        saved_model: savedModel,
         deck_count: deckCount,
         target_count: targetCount,
-        missing_artifact_files: missingArtifactFiles,
+        missing_saved_model_files: missingSavedModelFiles,
       });
       continue;
     }
@@ -100,32 +109,32 @@ export async function loadReleasePlan({
     let trainingManifest;
     try {
       trainingManifest = JSON.parse(
-        await readFile(resolve(artifact, "training_manifest.json"), "utf8"),
+        await readFile(resolve(savedModel, "training_manifest.json"), "utf8"),
       );
     } catch (error) {
       entries.push({
         format,
-        status: "invalid_artifact",
+        status: "invalid_saved_model",
         dataset,
-        artifact,
+        saved_model: savedModel,
         reason: `cannot read training_manifest.json: ${error.message}`,
       });
       continue;
     }
-    const artifactFormats = trainingManifest.formats?.map(normalizeFormat) || [];
-    const inferredArtifactFormat = normalizeFormat(
+    const savedModelFormats = trainingManifest.formats?.map(normalizeFormat) || [];
+    const inferredSavedModelFormat = normalizeFormat(
       String(trainingManifest.dataset_version || "").split("_")[0],
     );
     if (
-      (artifactFormats.length && !artifactFormats.includes(format))
-      || (!artifactFormats.length && inferredArtifactFormat !== format)
+      (savedModelFormats.length && !savedModelFormats.includes(format))
+      || (!savedModelFormats.length && inferredSavedModelFormat !== format)
     ) {
       entries.push({
         format,
-        status: "invalid_artifact",
+        status: "invalid_saved_model",
         dataset,
-        artifact,
-        reason: "training artifact belongs to another format",
+        saved_model: savedModel,
+        reason: "saved model belongs to another format",
       });
       continue;
     }
@@ -136,11 +145,11 @@ export async function loadReleasePlan({
     ) {
       entries.push({
         format,
-        status: "stale_artifact",
+        status: "stale_saved_model",
         dataset,
-        artifact,
+        saved_model: savedModel,
         reason: (
-          `artifact dataset '${trainingManifest.dataset_version}' does not match `
+          `saved-model dataset '${trainingManifest.dataset_version}' does not match `
           + `'${datasetManifest.dataset_version}'`
         ),
       });
@@ -158,7 +167,7 @@ export async function loadReleasePlan({
         format,
         status: "missing_family_metrics",
         dataset,
-        artifact,
+        saved_model: savedModel,
         reason: `family-backed metrics do not exist: ${familyMetrics}`,
       });
       continue;
@@ -168,7 +177,7 @@ export async function loadReleasePlan({
         format,
         status: "stale_family_metrics",
         dataset,
-        artifact,
+        saved_model: savedModel,
         reason: (
           `family metrics dataset '${familyMetricsPayload.dataset_version}' `
           + `does not match '${datasetManifest.dataset_version}'`
@@ -177,16 +186,17 @@ export async function loadReleasePlan({
       continue;
     }
 
-    const configuredFamilyRelations = config.family_relations?.[format];
-    const familyRelations = configuredFamilyRelations
-      ? resolve(workspace, configuredFamilyRelations)
-      : resolve(artifact, "family_relations.json");
-    if (configuredFamilyRelations && !(await isFile(familyRelations))) {
+    const familyRelations = resolvePattern(
+      config.family_relations_pattern,
+      workspace,
+      format,
+    );
+    if (!(await isFile(familyRelations))) {
       entries.push({
         format,
         status: "missing_family_relations",
         dataset,
-        artifact,
+        saved_model: savedModel,
         reason: `configured family relations do not exist: ${familyRelations}`,
       });
       continue;
@@ -195,8 +205,8 @@ export async function loadReleasePlan({
       format,
       status: "ready",
       dataset,
-      artifact,
-      family_relations: await isFile(familyRelations) ? familyRelations : null,
+      saved_model: savedModel,
+      family_relations: familyRelations,
       family_metrics: familyMetrics,
       deck_count: deckCount,
       target_count: targetCount,
@@ -225,10 +235,10 @@ export async function buildReleaseBundles(plan, {
   const failures = plan.entries.filter(({ status }) =>
     [
       "missing_dataset",
-      "missing_artifact",
+      "missing_saved_model",
       "invalid_dataset",
-      "invalid_artifact",
-      "stale_artifact",
+      "invalid_saved_model",
+      "stale_saved_model",
       "missing_family_relations",
       "missing_family_metrics",
       "stale_family_metrics",
@@ -240,7 +250,7 @@ export async function buildReleaseBundles(plan, {
 
   const ready = plan.entries.filter(({ status }) => status === "ready");
   if (!ready.length) {
-    throw new Error("No format has a nonempty dataset and deployable model artifact.");
+    throw new Error("No format has a nonempty dataset and deployable saved model.");
   }
 
   const workspace = plan.workspace;
@@ -289,7 +299,7 @@ async function stageFormatWorker({ entry, stage, workspace }) {
   const exportArgs = [
     "run", "//:export_onnx", "--",
     "--format", entry.format,
-    "--model-artifact", entry.artifact,
+    "--saved-model", entry.saved_model,
     "--ranking-dataset", entry.dataset,
     "--output-dir", resolve(stage, "src/model"),
     "--onnx-name", "model.onnx.bin",

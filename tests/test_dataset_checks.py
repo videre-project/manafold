@@ -10,19 +10,20 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from manafold.data.validate import parquet_schema, verify_dataset_export
+from manafold.datasets.verification import verify_dataset
+from manafold.datasets.schemas import parquet_schema
 
 
 class DatasetCheckTests(unittest.TestCase):
-  def test_dataset_export_verifies(self) -> None:
+  def test_dataset_files_verify(self) -> None:
     with tempfile.TemporaryDirectory() as directory:
       dataset_path = _write_dataset(Path(directory))
 
-      result = verify_dataset_export(dataset_path)
+      result = verify_dataset(dataset_path)
 
       self.assertEqual("modern_2024_2024_v0", result.dataset_version)
-      self.assertEqual(5, result.checked_artifacts)
-      self.assertEqual(4, result.checked_parquet_artifacts)
+      self.assertEqual(5, result.checked_files)
+      self.assertEqual(4, result.checked_parquet_files)
 
   def test_row_count_mismatch_fails(self) -> None:
     with tempfile.TemporaryDirectory() as directory:
@@ -33,7 +34,7 @@ class DatasetCheckTests(unittest.TestCase):
       manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
       with self.assertRaisesRegex(RuntimeError, "deck_tokens row count"):
-        verify_dataset_export(dataset_path)
+        verify_dataset(dataset_path)
 
   def test_missing_required_dataset_file_fails(self) -> None:
     with tempfile.TemporaryDirectory() as directory:
@@ -44,15 +45,15 @@ class DatasetCheckTests(unittest.TestCase):
       manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
       with self.assertRaisesRegex(RuntimeError, "proxy_targets"):
-        verify_dataset_export(dataset_path)
+        verify_dataset(dataset_path)
 
-  def test_missing_artifact_reports_path(self) -> None:
+  def test_missing_file_reports_path(self) -> None:
     with tempfile.TemporaryDirectory() as directory:
       dataset_path = _write_dataset(Path(directory))
       (dataset_path / "deck_tokens.parquet").unlink()
 
-      with self.assertRaisesRegex(RuntimeError, "Missing artifact deck_tokens"):
-        verify_dataset_export(dataset_path)
+      with self.assertRaisesRegex(RuntimeError, "Missing file deck_tokens"):
+        verify_dataset(dataset_path)
 
 
 def _write_dataset(root: Path) -> Path:
@@ -60,8 +61,8 @@ def _write_dataset(root: Path) -> Path:
   dataset_path.mkdir()
 
   parquet_rows = _parquet_rows()
-  for artifact_name, rows in parquet_rows.items():
-    _write_parquet(dataset_path / f"{artifact_name}.parquet", artifact_name, rows)
+  for file_stem, rows in parquet_rows.items():
+    _write_parquet(dataset_path / f"{file_stem}.parquet", file_stem, rows)
 
   _write_json(
     dataset_path / "zone_vocab.json",
@@ -86,14 +87,14 @@ def _write_dataset(root: Path) -> Path:
       "limit_events": 1,
       "artifacts": {
         **{
-          artifact_name: f"{artifact_name}.parquet"
-          for artifact_name in parquet_rows
+          file_stem: f"{file_stem}.parquet"
+          for file_stem in parquet_rows
         },
         "zone_vocab": "zone_vocab.json",
       },
       "row_counts": {
-        artifact_name: len(rows)
-        for artifact_name, rows in parquet_rows.items()
+        file_stem: len(rows)
+        for file_stem, rows in parquet_rows.items()
       },
     },
   )
@@ -155,10 +156,10 @@ def _parquet_rows() -> dict[str, list[dict[str, Any]]]:
 
 def _write_parquet(
   path: Path,
-  artifact_name: str,
+  file_stem: str,
   rows: list[dict[str, Any]],
 ) -> None:
-  table = pa.Table.from_pylist(rows, schema=parquet_schema(artifact_name))
+  table = pa.Table.from_pylist(rows, schema=parquet_schema(file_stem))
   pq.write_table(table, path)
 
 

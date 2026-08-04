@@ -14,13 +14,18 @@ from typing import Any
 
 import torch
 
-from manafold.models.card_ranking import build_family_card_ranking
-from manafold.models.data import load_training_dataset
-from manafold.models.family_backoff import (
+from manafold.datasets.mtgo.build import SOURCE_ARCHETYPE_PROXY
+from manafold.datasets.model_inputs import load_training_dataset
+from manafold.models.features.family_card_ranking import build_family_card_ranking
+from manafold.models.saved_model import load_saved_model
+from manafold.models.training.model_names import MODEL_SET_TRANSFORMER_A11
+from manafold.taxonomy.family_backoff import (
   build_family_vocab,
   extract_proposed_edges,
 )
-from manafold.models.model_artifacts import load_model_artifact
+from manafold.taxonomy.family_dataset import (
+  project_dataset_to_canonical_families,
+)
 
 INPUT_NAMES = [
   "cards",
@@ -72,28 +77,32 @@ def main(argv: list[str] | None = None) -> int:
     )
 
   workspace = Path(os.environ.get("BUILD_WORKSPACE_DIRECTORY", Path.cwd()))
-  artifact_dir = _resolve_path(args.model_artifact, workspace)
+  saved_model_dir = _resolve_path(args.saved_model, workspace)
   output_dir = _resolve_path(args.output_dir, workspace)
   if args.family_relations is not None:
     args.family_relations = _resolve_path(args.family_relations, workspace)
+  else:
+    saved_relations = saved_model_dir / "family_relations.json"
+    if saved_relations.exists():
+      args.family_relations = saved_relations
   if args.ranking_dataset is not None:
     args.ranking_dataset = _resolve_path(args.ranking_dataset, workspace)
   output_dir.mkdir(parents=True, exist_ok=True)
   onnx_path = output_dir / args.onnx_name
 
-  artifact = load_model_artifact(artifact_dir, device="cpu")
-  model = artifact["model"]
+  saved_model = load_saved_model(saved_model_dir, device="cpu")
+  model = saved_model["model"]
   net = getattr(model, "_network", None)
   if net is None or not hasattr(net, "forward_onnx"):
     raise SystemExit(
-      f"Artifact {artifact_dir} does not expose an ONNX forward pass."
+      f"Saved model {saved_model_dir} does not expose an ONNX forward pass."
     )
 
-  model_config = dict(artifact["model_config"])
+  model_config = dict(saved_model["model_config"])
   package_count = int(model_config.get("package_count") or 0)
   if package_count and not args.allow_package_features:
     raise SystemExit(
-      "Package-conditioned artifacts are not enabled for Worker export. Pass "
+      "Package-conditioned saved models are not enabled for Worker export. Pass "
       "--allow-package-features only if the Worker runtime will provide the "
       "package_features tensor."
     )
@@ -148,8 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     input_names=onnx_info["input_names"],
   )
   files = _write_worker_metadata(
-    artifact=artifact,
-    artifact_dir=artifact_dir,
+    saved_model=saved_model,
+    saved_model_dir=saved_model_dir,
     output_dir=output_dir,
     onnx_path=onnx_path,
     onnx_info=onnx_info,
@@ -157,8 +166,8 @@ def main(argv: list[str] | None = None) -> int:
     args=args,
   )
 
-  if args.copy_artifact_metadata:
-    _copy_artifact_metadata(artifact_dir, output_dir)
+  if args.copy_saved_model_metadata:
+    _copy_saved_model_metadata(saved_model_dir, output_dir)
   if args.worker_assets_dir is not None:
     _copy_worker_assets(output_dir, _resolve_path(args.worker_assets_dir, workspace))
 
@@ -186,15 +195,15 @@ def _resolve_path(path: Path, workspace: Path) -> Path:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
   parser = argparse.ArgumentParser(
     description=(
-      "Export a Manafold set-model artifact to a single-file ONNX bundle for "
+      "Export a Manafold set-saved model to a single-file ONNX bundle for "
       "Cloudflare Worker inference."
     )
   )
   parser.add_argument(
-    "--model-artifact",
+    "--saved-model",
     required=True,
     type=Path,
-    help="Path to a Manafold model artifact directory.",
+    help="Path to a Manafold saved model directory.",
   )
   parser.add_argument(
     "--output-dir",
@@ -211,8 +220,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     "--family-relations",
     type=Path,
     help=(
-      "Optional seed-free auto-ontology or compact relation artifact. Semantic "
-      "edges are folded into the serving family map; the source artifact is "
+      "Optional seed-free auto-ontology or compact relation file. Semantic "
+      "edges are folded into the serving family map; the source file is "
       "not copied into the Worker bundle."
     ),
   )
@@ -222,7 +231,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     help=(
       "Dataset whose train split supplies mainboard family-card "
       "distinctiveness rankings. Release builds should pass the dataset used "
-      "to train the artifact."
+      "to train the saved model."
     ),
   )
   parser.add_argument(
@@ -267,10 +276,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
   parser.add_argument(
     "--allow-package-features",
     action="store_true",
-    help="Permit export of package-conditioned artifacts.",
+    help="Permit export of package-conditioned saved models.",
   )
   parser.add_argument(
-    "--copy-artifact-metadata",
+    "--copy-saved-model-metadata",
     action="store_true",
     help="Copy model_config.json, temperature.json, and training_manifest.json.",
   )
@@ -399,8 +408,8 @@ def _verify_onnx(
 
 def _write_worker_metadata(
   *,
-  artifact: dict[str, Any],
-  artifact_dir: Path,
+  saved_model: dict[str, Any],
+  saved_model_dir: Path,
   output_dir: Path,
   onnx_path: Path,
   onnx_info: dict[str, Any],
@@ -421,18 +430,18 @@ def _write_worker_metadata(
         "oracle_id": str(row["oracle_id"]),
         "primary_name": str(row["primary_name"]),
       }
-      for row in artifact["card_vocab"]
+      for row in saved_model["card_vocab"]
     ),
     key=lambda row: int(row["card_idx"]),
   )
   label_rows = sorted(
-    artifact["label_metadata"].values(),
+    saved_model["label_metadata"].values(),
     key=lambda row: row["label_id"],
   )
   zone_vocab = {
     zone: int(index)
     for zone, index in sorted(
-      artifact["zone_vocab"].items(),
+      saved_model["zone_vocab"].items(),
       key=lambda item: item[1],
     )
   }
@@ -462,7 +471,7 @@ def _write_worker_metadata(
       "proposed_edge_count": len(proposed_edges),
     }
   family_vocab = build_family_vocab(
-    artifact["label_metadata"],
+    saved_model["label_metadata"],
     proposed_edges=proposed_edges,
   )
   if relation_source is not None:
@@ -478,21 +487,39 @@ def _write_worker_metadata(
     "families": {},
   }
   if args.ranking_dataset is not None:
+    model_target_source = str(
+      saved_model["model_config"].get("target_source") or ""
+    )
+    ranking_target_source = (
+      SOURCE_ARCHETYPE_PROXY
+      if model_target_source == "family_canonical_proxy"
+      else model_target_source
+    )
     ranking_dataset = load_training_dataset(
       args.ranking_dataset,
-      target_source=str(artifact["model_config"].get("target_source") or ""),
+      target_source=ranking_target_source,
     )
-    if ranking_dataset.dataset_version != artifact["model_config"].get(
+    if model_target_source == "family_canonical_proxy":
+      if args.family_relations is None:
+        raise ValueError(
+          "A family-canonical saved model requires its generated family "
+          "relations for ranking export."
+        )
+      ranking_dataset, _ = project_dataset_to_canonical_families(
+        ranking_dataset,
+        family_relations_path=args.family_relations,
+      )
+    if ranking_dataset.dataset_version != saved_model["model_config"].get(
       "dataset_version"
     ):
       raise ValueError(
-        "Ranking dataset version does not match the model artifact: "
+        "Ranking dataset version does not match the saved model: "
         f"{ranking_dataset.dataset_version!r} != "
-        f"{artifact['model_config'].get('dataset_version')!r}."
+        f"{saved_model['model_config'].get('dataset_version')!r}."
       )
     card_ranking = build_family_card_ranking(
       ranking_dataset,
-      artifact_card_vocab=tuple(artifact["card_vocab"]),
+      saved_card_vocab=tuple(saved_model["card_vocab"]),
       family_vocab=family_vocab,
     )
     ranking_source = {
@@ -503,7 +530,7 @@ def _write_worker_metadata(
   _write_json(card_ranking_path, card_ranking)
   _write_json(zone_vocab_path, zone_vocab)
 
-  model_config = dict(artifact["model_config"])
+  model_config = dict(saved_model["model_config"])
   onnx_sha256 = _sha256(onnx_path)
   family_vocab_sha256 = _sha256(family_vocab_path)
   card_ranking_sha256 = _sha256(card_ranking_path)
@@ -514,7 +541,11 @@ def _write_worker_metadata(
     ).encode("utf-8")
   ).hexdigest()[:12]
   created_at = datetime.now(timezone.utc)
-  serving_model = "manafold-a3"
+  serving_model = (
+    "manafold-a11"
+    if saved_model["model_family"] == MODEL_SET_TRANSFORMER_A11
+    else f"manafold-{saved_model['model_family']}"
+  )
   serving_version = (
     f"{str(args.format).strip().lower()}-"
     f"{created_at.strftime('%Y%m%d')}-{serving_fingerprint}"
@@ -525,9 +556,9 @@ def _write_worker_metadata(
       "version": 1,
     },
     "created_at": created_at.isoformat(),
-    "source_artifact": str(artifact_dir),
-    "model_version": artifact["model_version"],
-    "model_family": artifact["model_family"],
+    "source_saved_model": str(saved_model_dir),
+    "model_version": saved_model["model_version"],
+    "model_family": saved_model["model_family"],
     "serving": {
       "model": serving_model,
       "version": serving_version,
@@ -535,7 +566,7 @@ def _write_worker_metadata(
     "format": str(args.format).strip().lower(),
     "dataset_version": model_config.get("dataset_version"),
     "target_source": model_config.get("target_source"),
-    "temperature": float(artifact["temperature"]),
+    "temperature": float(saved_model["temperature"]),
     "fixed_deck_count": int(args.deck_count),
     "dynamic_token_count": bool(args.dynamic_tokens),
     "onnx": {
@@ -635,13 +666,13 @@ def _write_worker_metadata(
   }
 
 
-def _copy_artifact_metadata(artifact_dir: Path, output_dir: Path) -> None:
+def _copy_saved_model_metadata(saved_model_dir: Path, output_dir: Path) -> None:
   for name in (
     "model_config.json",
     "temperature.json",
     "training_manifest.json",
   ):
-    source = artifact_dir / name
+    source = saved_model_dir / name
     if source.exists():
       shutil.copy2(source, output_dir / name)
 

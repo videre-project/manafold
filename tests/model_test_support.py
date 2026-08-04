@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from manafold.data.validate import write_parquet
+from manafold.datasets.parquet import write_parquet
 
 def _write_dataset(dataset_path: Path, *, final_holdout: bool = False) -> None:
   artifacts = {
@@ -141,7 +141,7 @@ def _rewrite_dataset_with_local_card_indexes(dataset_path: Path) -> None:
   write_parquet(deck_tokens_path, remapped_tokens, "deck_tokens")
 
 
-def _remove_proxy_targets_artifact(dataset_path: Path) -> None:
+def _remove_proxy_targets_file(dataset_path: Path) -> None:
   manifest_path = dataset_path / "dataset_manifest.json"
   manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
   proxy_targets = manifest["artifacts"].pop("proxy_targets")
@@ -299,5 +299,4 @@ def _prediction(
     "is_correct": actual_label_id == predicted_label_id,
     "is_top_3_correct": actual_label_id in top_label_ids,
   }
-
 
